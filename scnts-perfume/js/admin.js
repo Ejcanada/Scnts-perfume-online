@@ -131,6 +131,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       toast("Order status updated");
     } catch (err) {
       showMsg("msg", err.message, "error");
+      loadAdminOrders();   // put the dropdown back to the saved status
     }
   });
 });
