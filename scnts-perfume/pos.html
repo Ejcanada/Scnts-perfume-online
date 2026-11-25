@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>POS - SCNTS Perfume</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <meta name="theme-color" content="#a3134f">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/staff.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <script src="js/fx.js" defer></script>
+  <script src="js/api.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <div id="denied" style="display:none"><div class="box"><p>Staff only. Your account does not have access to this page.</p></div></div>
+    <div id="staff-content" style="display:none">
+      <h1 class="page-title">Point of Sale</h1>
+      <p class="sub">Tap a perfume to add it. Press <strong>Record sale</strong> every time you sell. Never skip this.</p>
+      <div id="msg" class="msg"></div>
+
+      <div class="pos-wrap">
+        <div>
+          <div class="toolbar"><input id="search" type="search" placeholder="Search perfume..."></div>
+          <div class="chips" id="chips">
+            <button class="chip active" data-cat="">All</button>
+            <button class="chip" data-cat="men">For him</button>
+            <button class="chip" data-cat="women">For her</button>
+          </div>
+          <div id="tiles" class="tiles"></div>
+        </div>
+
+        <div class="box sale-panel">
+          <h2>Current sale</h2>
+          <div id="sale-lines"><p class="empty">Nothing yet. Tap a perfume.</p></div>
+          <div class="big-total" id="sale-total">₱0.00</div>
+          <div class="pay-options" id="pay-options">
+            <button type="button" class="active" data-pay="cash">Cash</button>
+            <button type="button" data-pay="gcash">GCash</button>
+            <button type="button" data-pay="card">Card</button>
+            <button type="button" data-pay="other">Other</button>
+          </div>
+          <input id="sale-note" maxlength="200" placeholder="Note (optional)">
+          <br><br>
+          <button class="btn big-btn" id="record-btn" disabled>Record sale</button>
+          <br>
+          <button class="btn btn-outline" id="clear-btn" style="width:100%">Clear</button>
+        </div>
+      </div>
+
+      <div class="box" style="margin-top:24px">
+        <h2>Sales today</h2>
+        <div class="cards" id="today-cards"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Sold by</th><th>Perfumes</th><th>Payment</th><th>Total</th></tr></thead>
+            <tbody id="today-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+
+  <script src="js/main.js"></script>
+  <script src="js/pos.js"></script>
+</body>
+</html>

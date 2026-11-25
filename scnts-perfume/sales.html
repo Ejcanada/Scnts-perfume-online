@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sales - SCNTS Perfume</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <meta name="theme-color" content="#a3134f">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/staff.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <script src="js/fx.js" defer></script>
+  <script src="js/api.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <div id="denied" style="display:none"><div class="box"><p>Admin only. Your account does not have access to this page.</p></div></div>
+    <div id="staff-content" style="display:none">
+      <h1 class="page-title">Sales report</h1>
+      <p class="sub">All walk-in sales by your employees. Pick a day.</p>
+      <div id="msg" class="msg"></div>
+
+      <div class="date-bar">
+        <button class="btn btn-outline btn-small" id="prev-day">← Previous day</button>
+        <input type="date" id="day">
+        <button class="btn btn-outline btn-small" id="next-day">Next day →</button>
+        <button class="btn btn-small" id="today-btn">Today</button>
+        <select id="emp-filter"><option value="">All employees</option></select>
+      </div>
+
+      <div class="cards" id="sum-cards"></div>
+
+      <div class="box">
+        <h2>Per employee</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Employee</th><th>Sales</th><th>Perfumes sold</th><th>Total</th></tr></thead>
+            <tbody id="emp-rows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="box">
+        <h2>All sales this day</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Time</th><th>Employee</th><th>Perfumes</th><th>Payment</th><th>Total</th><th></th></tr></thead>
+            <tbody id="sale-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+
+  <script src="js/main.js"></script>
+  <script src="js/sales.js"></script>
+</body>
+</html>
