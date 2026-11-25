@@ -12,7 +12,7 @@ import bcrypt
 import jwt
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from supabase import create_client
@@ -736,3 +736,552 @@ def update_employee(user_id: int, data: StaffUpdate, admin=Depends(admin_only)):
         raise HTTPException(status_code=422, detail="Send is_active or password.")
     run(db().table("users").update(changes).eq("id", user_id))
     return {"message": "Employee updated.", "id": user_id}
+
+
+# ===============================================================
+# Reports: the admin downloads a summary of sales, stock and orders
+# ===============================================================
+# Money rules used in the report (also written inside the Excel file):
+#   Walk-in revenue  = POS sales that are not voided
+#   Online revenue   = website orders that are paid, shipped or delivered
+#   Pending orders   = shown separately (not counted as revenue until paid)
+#   Cancelled orders and voided sales are never counted as revenue
+CONFIRMED_ORDER = ("paid", "shipped", "delivered")
+LOW_STOCK = 5
+MAX_REPORT_DAYS = 366
+CAT_LABEL = {"men": "For him", "women": "For her", "unisex": "Unisex"}
+MOVE_LABEL = {
+    "sale": "Sold (POS)", "online_order": "Online order", "restock": "Restocked", "count": "Stock count",
+    "damaged": "Damaged or lost", "adjustment": "Other fix", "void": "Sale voided (back in stock)",
+    "order_cancelled": "Order cancelled (back in stock)",
+}
+
+
+def parse_ts(value):
+    """Time text from the database -> datetime in Philippine time."""
+    text = str(value).replace("Z", "+00:00")
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(\.\d+)?(.*)$", text)
+    if m:
+        frac = (m.group(3) or ".0")[1:7].ljust(6, "0")
+        text = m.group(1) + "T" + m.group(2) + "." + frac + (m.group(4) or "+00:00")
+    d = datetime.fromisoformat(text)
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return d.astimezone(PH_TZ)
+
+
+def report_period(start, end):
+    """Turn the two dates from the page into real dates (default: this month until today)."""
+    today = datetime.now(PH_TZ).date()
+    try:
+        d1 = datetime.strptime(start, "%Y-%m-%d").date() if start else today.replace(day=1)
+        d2 = datetime.strptime(end, "%Y-%m-%d").date() if end else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Dates must look like 2026-11-25.")
+    if d2 < d1:
+        raise HTTPException(status_code=422, detail="The end date is before the start date.")
+    if (d2 - d1).days + 1 > MAX_REPORT_DAYS:
+        raise HTTPException(status_code=422, detail="Please pick " + str(MAX_REPORT_DAYS) + " days or less.")
+    return d1, d2
+
+
+def fetch_all(make_query, page=1000, limit=20000):
+    """The database gives at most 1000 rows at a time, so ask again until we have them all."""
+    rows = []
+    start = 0
+    while True:
+        res = run(make_query().range(start, start + page - 1))
+        rows.extend(res.data)
+        if len(res.data) < page or len(rows) >= limit:
+            break
+        start += page
+    return rows
+
+
+def load_report_data(d1, d2):
+    first = datetime(d1.year, d1.month, d1.day, tzinfo=PH_TZ)
+    after = datetime(d2.year, d2.month, d2.day, tzinfo=PH_TZ) + timedelta(days=1)
+    s, e = first.isoformat(), after.isoformat()
+
+    sales = fetch_all(lambda: db().table("sales").select(
+        "id,employee_id,total,payment_method,note,status,void_reason,voided_at,created_at,"
+        "employee:users!sales_employee_id_fkey(name),"
+        "sale_items(product_id,quantity,price,product:products(name,category))"
+    ).gte("created_at", s).lt("created_at", e).order("id"))
+
+    orders = fetch_all(lambda: db().table("orders").select(
+        "id,user_id,total,status,created_at,user:users(name,email),"
+        "order_items(product_id,quantity,price,product:products(name,category))"
+    ).gte("created_at", s).lt("created_at", e).order("id"))
+
+    products = fetch_all(lambda: db().table("products").select("id,name,brand,category,price,size_ml,stock").order("id"))
+
+    moves = fetch_all(lambda: db().table("stock_movements").select(
+        "id,product_id,qty_change,stock_after,reason,note,created_at,product:products(name),user:users(name)"
+    ).gte("created_at", s).lt("created_at", e).order("id"), limit=6000)
+
+    new_customers = 0
+    try:
+        users = fetch_all(lambda: db().table("users").select("id,created_at,role:roles(role)")
+                          .gte("created_at", s).lt("created_at", e).order("id"))
+        new_customers = len([u for u in users if role_name(u) not in STAFF_ROLES])
+    except HTTPException:
+        pass    # the report still works without this number
+
+    return {"sales": sales, "orders": orders, "products": products, "moves": moves, "new_customers": new_customers}
+
+
+def build_report(d1, d2, raw, generated_by):
+    """Turn the raw rows into the numbers and tables of the report. No database here."""
+    days = (d2 - d1).days + 1
+    products = {p["id"]: p for p in raw["products"]}
+    sales, orders = raw["sales"], raw["orders"]
+
+    done = [x for x in sales if x["status"] == "completed"]
+    voided = [x for x in sales if x["status"] != "completed"]
+    confirmed = [o for o in orders if o["status"] in CONFIRMED_ORDER]
+    pending = [o for o in orders if o["status"] == "pending"]
+    cancelled = [o for o in orders if o["status"] == "cancelled"]
+
+    def qty_of(rows, key):
+        return sum(i["quantity"] for r in rows for i in r[key])
+
+    walkin_total = round(sum(float(x["total"]) for x in done), 2)
+    online_total = round(sum(float(o["total"]) for o in confirmed), 2)
+    walkin_items, online_items = qty_of(done, "sale_items"), qty_of(confirmed, "order_items")
+
+    # ----- day by day -----
+    daily = {}
+    for i in range(days):
+        d = (d1 + timedelta(days=i)).isoformat()
+        daily[d] = {"date": d, "walkin_count": 0, "walkin_total": 0.0, "online_count": 0, "online_total": 0.0, "voided": 0}
+    for x in sales:
+        row = daily.get(parse_ts(x["created_at"]).date().isoformat())
+        if row is None:
+            continue
+        if x["status"] == "completed":
+            row["walkin_count"] += 1
+            row["walkin_total"] = round(row["walkin_total"] + float(x["total"]), 2)
+        else:
+            row["voided"] += 1
+    for o in confirmed:
+        row = daily.get(parse_ts(o["created_at"]).date().isoformat())
+        if row is not None:
+            row["online_count"] += 1
+            row["online_total"] = round(row["online_total"] + float(o["total"]), 2)
+    daily_rows = list(daily.values())
+    for row in daily_rows:
+        row["total"] = round(row["walkin_total"] + row["online_total"], 2)
+
+    # ----- by perfume -----
+    agg = {}
+
+    def add(kind, items):
+        for i in items:
+            prod = i.get("product") or {}
+            known = products.get(i["product_id"], {})
+            a = agg.setdefault(i["product_id"], {
+                "product_id": i["product_id"], "name": prod.get("name") or known.get("name") or ("Perfume " + str(i["product_id"])),
+                "category": prod.get("category") or known.get("category") or "unisex",
+                "walkin_units": 0, "online_units": 0, "revenue": 0.0})
+            a[kind + "_units"] += i["quantity"]
+            a["revenue"] = round(a["revenue"] + float(i["price"]) * i["quantity"], 2)
+
+    for x in done:
+        add("walkin", x["sale_items"])
+    for o in confirmed:
+        add("online", o["order_items"])
+    perfumes = []
+    for a in agg.values():
+        a["units"] = a["walkin_units"] + a["online_units"]
+        a["category_label"] = CAT_LABEL.get(a["category"], a["category"])
+        a["stock"] = products.get(a["product_id"], {}).get("stock")
+        perfumes.append(a)
+    perfumes.sort(key=lambda a: (-a["revenue"], a["name"]))
+    never_sold = [p for p in raw["products"] if p["id"] not in agg]
+
+    # ----- by category -----
+    categories = []
+    for key in ("men", "women", "unisex"):
+        mine = [a for a in perfumes if a["category"] == key]
+        categories.append({"category": CAT_LABEL[key], "units": sum(a["units"] for a in mine),
+                           "revenue": round(sum(a["revenue"] for a in mine), 2)})
+
+    # ----- payment methods (walk-in only) -----
+    payments = []
+    for key, label in (("cash", "Cash"), ("gcash", "GCash"), ("card", "Card"), ("other", "Other")):
+        mine = [x for x in done if x["payment_method"] == key]
+        payments.append({"method": label, "count": len(mine), "total": round(sum(float(x["total"]) for x in mine), 2)})
+
+    # ----- employees -----
+    emp = {}
+    for x in sales:
+        who = emp.setdefault(x["employee_id"], {"name": (x.get("employee") or {}).get("name", "Unknown"),
+                                                 "sales": 0, "items": 0, "total": 0.0, "voided": 0})
+        if x["status"] == "completed":
+            who["sales"] += 1
+            who["items"] += sum(i["quantity"] for i in x["sale_items"])
+            who["total"] = round(who["total"] + float(x["total"]), 2)
+        else:
+            who["voided"] += 1
+    employees = sorted(emp.values(), key=lambda w: -w["total"])
+    for w in employees:
+        w["average"] = round(w["total"] / w["sales"], 2) if w["sales"] else 0
+
+    # ----- online orders by status, and best customers -----
+    order_status = []
+    for st in ORDER_STATUSES:
+        mine = [o for o in orders if o["status"] == st]
+        order_status.append({"status": st.capitalize(), "count": len(mine), "total": round(sum(float(o["total"]) for o in mine), 2)})
+    cust = {}
+    for o in confirmed:
+        c = cust.setdefault(o["user_id"], {"name": (o.get("user") or {}).get("name", "User " + str(o["user_id"])),
+                                            "email": (o.get("user") or {}).get("email", ""), "orders": 0, "total": 0.0})
+        c["orders"] += 1
+        c["total"] = round(c["total"] + float(o["total"]), 2)
+    customers = sorted(cust.values(), key=lambda c: -c["total"])[:20]
+
+    # ----- stock now (snapshot) -----
+    inventory = []
+    for p in sorted(raw["products"], key=lambda p: p["name"].lower()):
+        sold = agg.get(p["id"], {}).get("units", 0)
+        per_day = sold / days
+        status = "Sold out" if p["stock"] <= 0 else ("Low" if p["stock"] <= LOW_STOCK else "OK")
+        inventory.append({
+            "name": p["name"], "brand": p.get("brand") or "", "category": CAT_LABEL.get(p["category"], p["category"]),
+            "size_ml": p.get("size_ml"), "price": float(p["price"]), "stock": p["stock"],
+            "value": round(float(p["price"]) * p["stock"], 2), "status": status, "sold": sold,
+            "days_left": round(p["stock"] / per_day) if per_day > 0 and p["stock"] > 0 else None,
+        })
+    low = [i for i in inventory if i["status"] == "Low"]
+    out = [i for i in inventory if i["status"] == "Sold out"]
+    stock_units = sum(p["stock"] for p in raw["products"])
+    stock_value = round(sum(float(p["price"]) * p["stock"] for p in raw["products"]), 2)
+
+    # ----- stock movements in the period -----
+    summary = {}
+    for m in raw["moves"]:
+        row = summary.setdefault(m["reason"], {"reason": MOVE_LABEL.get(m["reason"], m["reason"]), "count": 0, "units_in": 0, "units_out": 0})
+        row["count"] += 1
+        if m["qty_change"] > 0:
+            row["units_in"] += m["qty_change"]
+        else:
+            row["units_out"] += -m["qty_change"]
+    movement_summary = sorted(summary.values(), key=lambda r: -r["count"])
+    movements = []
+    for m in sorted(raw["moves"], key=lambda m: m["id"], reverse=True):
+        t = parse_ts(m["created_at"])
+        movements.append({"when": t.strftime("%Y-%m-%d %H:%M"), "perfume": (m.get("product") or {}).get("name", ""),
+                          "change": m["qty_change"], "after": m["stock_after"], "reason": MOVE_LABEL.get(m["reason"], m["reason"]),
+                          "by": (m.get("user") or {}).get("name", ""), "note": m.get("note") or ""})
+
+    # ----- detail lists -----
+    sale_rows = []
+    for x in sorted(sales, key=lambda x: x["id"], reverse=True):
+        t = parse_ts(x["created_at"])
+        sale_rows.append({
+            "id": x["id"], "date": t.strftime("%Y-%m-%d"), "time": t.strftime("%H:%M"),
+            "employee": (x.get("employee") or {}).get("name", ""),
+            "perfumes": ", ".join(str(i["quantity"]) + " x " + ((i.get("product") or {}).get("name") or "Perfume") for i in x["sale_items"]),
+            "payment": x["payment_method"].capitalize(), "total": float(x["total"]),
+            "status": "Completed" if x["status"] == "completed" else "VOIDED",
+            "void_reason": x.get("void_reason") or "", "note": x.get("note") or ""})
+    order_rows = []
+    for o in sorted(orders, key=lambda o: o["id"], reverse=True):
+        t = parse_ts(o["created_at"])
+        order_rows.append({
+            "id": o["id"], "date": t.strftime("%Y-%m-%d"), "time": t.strftime("%H:%M"),
+            "customer": (o.get("user") or {}).get("name", ""), "email": (o.get("user") or {}).get("email", ""),
+            "perfumes": ", ".join(str(i["quantity"]) + " x " + ((i.get("product") or {}).get("name") or "Perfume") for i in o["order_items"]),
+            "total": float(o["total"]), "status": o["status"].capitalize()})
+
+    # ----- highlights in plain words -----
+    total_revenue = round(walkin_total + online_total, 2)
+    insights = []
+    if total_revenue > 0:
+        best = max(daily_rows, key=lambda r: r["total"])
+        insights.append("Best day: " + best["date"] + " with P" + format(best["total"], ",.2f") + ".")
+    if perfumes:
+        insights.append("Best seller: " + perfumes[0]["name"] + " (" + str(perfumes[0]["units"]) + " sold, P" + format(perfumes[0]["revenue"], ",.2f") + ").")
+    if out:
+        insights.append(str(len(out)) + " perfume(s) are sold out: " + ", ".join(i["name"] for i in out[:6]) + (" ..." if len(out) > 6 else "") + ".")
+    if low:
+        insights.append(str(len(low)) + " perfume(s) are low (" + str(LOW_STOCK) + " or less): " + ", ".join(i["name"] for i in low[:6]) + (" ..." if len(low) > 6 else "") + ".")
+    if pending:
+        insights.append(str(len(pending)) + " online order(s) are still pending (P" + format(sum(float(o["total"]) for o in pending), ",.2f") + ") and are not counted as revenue yet.")
+    if voided:
+        insights.append(str(len(voided)) + " walk-in sale(s) were voided (P" + format(sum(float(x["total"]) for x in voided), ",.2f") + "). Check the reasons in the Walk-in sales sheet.")
+    if never_sold:
+        insights.append(str(len(never_sold)) + " perfume(s) did not sell at all in this period.")
+    if not insights:
+        insights.append("No sales in this period.")
+
+    return {
+        "period": {"start": d1.isoformat(), "end": d2.isoformat(), "days": days},
+        "generated_at": datetime.now(PH_TZ).strftime("%Y-%m-%d %H:%M"),
+        "generated_by": generated_by,
+        "kpis": {
+            "total_revenue": total_revenue,
+            "walkin_total": walkin_total, "walkin_count": len(done), "walkin_items": walkin_items,
+            "average_sale": round(walkin_total / len(done), 2) if done else 0,
+            "online_total": online_total, "online_count": len(confirmed), "online_items": online_items,
+            "pending_count": len(pending), "pending_value": round(sum(float(o["total"]) for o in pending), 2),
+            "cancelled_count": len(cancelled),
+            "voided_count": len(voided), "voided_total": round(sum(float(x["total"]) for x in voided), 2),
+            "items_sold": walkin_items + online_items, "new_customers": raw["new_customers"],
+            "perfumes": len(raw["products"]), "stock_units": stock_units, "stock_value": stock_value,
+            "low_count": len(low), "out_count": len(out), "never_sold_count": len(never_sold),
+        },
+        "insights": insights, "daily": daily_rows, "perfumes": perfumes, "categories": categories, "payments": payments,
+        "employees": employees, "order_status": order_status, "customers": customers, "inventory": inventory,
+        "movement_summary": movement_summary, "movements": movements, "sales": sale_rows, "orders": order_rows,
+    }
+
+
+def make_xlsx(r):
+    """Write the report as an Excel file (one sheet per topic). Returns the file as bytes."""
+    try:
+        import io
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.properties import PageSetupProperties
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Excel support is missing. Add openpyxl to requirements.txt and redeploy.")
+
+    BERRY, GOLD, SOFT, GREY = "A3134F", "E8B84B", "FBF1F4", "6B5A62"
+    FMT = {"money": '"₱"#,##0.00', "int": "#,##0"}
+    thin = Side(style="thin", color="EAD7DE")
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    def new_sheet(title, tab=BERRY):
+        ws = wb.create_sheet(title)
+        ws.sheet_properties.tabColor = tab
+        ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.widths = {}
+        return ws
+
+    def heading(ws, row, text):
+        c = ws.cell(row=row, column=1, value=text)
+        c.font = Font(bold=True, size=13, color=BERRY)
+        return row + 1
+
+    def table(ws, row, cols, rows, total=None):
+        """cols = [(header, key, kind)]. Returns the next free row."""
+        for n, (h, k, kind) in enumerate(cols, 1):
+            c = ws.cell(row=row, column=n, value=h)
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor=BERRY)
+            c.alignment = Alignment(vertical="center", wrap_text=True)
+            ws.widths[n] = max(ws.widths.get(n, 0), len(h) + 3)
+        if not rows:
+            c = ws.cell(row=row + 1, column=1, value="No data in this period.")
+            c.font = Font(italic=True, color=GREY)
+            return row + 3
+        for i, rec in enumerate(rows):
+            for n, (h, k, kind) in enumerate(cols, 1):
+                v = rec.get(k)
+                c = ws.cell(row=row + 1 + i, column=n, value=v)
+                if kind in FMT:
+                    c.number_format = FMT[kind]
+                c.border = Border(bottom=thin)
+                if i % 2:
+                    c.fill = PatternFill("solid", fgColor=SOFT)
+                ws.widths[n] = max(ws.widths.get(n, 0), min(len(str(v if v is not None else "")) + 3, 58))
+        end = row + len(rows)
+        ws.data_end = end
+        if total:
+            for n, (h, k, kind) in enumerate(cols, 1):
+                c = ws.cell(row=end + 1, column=n, value=total.get(k))
+                c.font = Font(bold=True)
+                c.fill = PatternFill("solid", fgColor="FBE7B5")
+                if kind in FMT:
+                    c.number_format = FMT[kind]
+            end += 1
+        return end + 2
+
+    def finish(ws, filter_ref=True, freeze="A2"):
+        for n, w in ws.widths.items():
+            ws.column_dimensions[get_column_letter(n)].width = w
+        if freeze:
+            ws.freeze_panes = freeze
+        if filter_ref and ws.max_row > 1:
+            ws.auto_filter.ref = "A1:" + get_column_letter(ws.max_column) + str(getattr(ws, "data_end", ws.max_row))
+
+    k, p = r["kpis"], r["period"]
+
+    # ---------- Summary ----------
+    ws = new_sheet("Summary", GOLD)
+    ws["A1"] = "SCNTS Perfume - Business Summary"
+    ws["A1"].font = Font(bold=True, size=20, color=BERRY)
+    ws["A2"] = "Period: " + p["start"] + " to " + p["end"] + " (" + str(p["days"]) + " day" + ("" if p["days"] == 1 else "s") + ")"
+    ws["A2"].font = Font(bold=True, size=12)
+    ws["A3"] = "Created " + r["generated_at"] + " (Philippine time) by " + r["generated_by"]
+    ws["A3"].font = Font(italic=True, color=GREY)
+    row = heading(ws, 5, "Key numbers")
+    metrics = [
+        {"m": "TOTAL REVENUE", "v": k["total_revenue"], "n": "Walk-in revenue + online revenue"},
+        {"m": "Walk-in revenue", "v": k["walkin_total"], "n": "POS sales that were not voided"},
+        {"m": "Online revenue", "v": k["online_total"], "n": "Website orders that are paid, shipped or delivered"},
+        {"m": "Perfumes sold", "v": k["items_sold"], "n": str(k["walkin_items"]) + " walk-in + " + str(k["online_items"]) + " online"},
+        {"m": "Walk-in sales", "v": k["walkin_count"], "n": "Number of POS sales"},
+        {"m": "Average walk-in sale", "v": k["average_sale"], "n": "Walk-in revenue / number of walk-in sales"},
+        {"m": "Online orders (counted)", "v": k["online_count"], "n": "Paid, shipped or delivered"},
+        {"m": "Online orders pending", "v": k["pending_count"], "n": "Worth " + format(k["pending_value"], ",.2f") + " - not counted as revenue yet"},
+        {"m": "Online orders cancelled", "v": k["cancelled_count"], "n": "Stock was put back"},
+        {"m": "Walk-in sales voided", "v": k["voided_count"], "n": "Worth " + format(k["voided_total"], ",.2f") + " - not counted"},
+        {"m": "New customer accounts", "v": k["new_customers"], "n": "Registered in this period"},
+        {"m": "Perfumes in the shop", "v": k["perfumes"], "n": "Right now"},
+        {"m": "Bottles in stock", "v": k["stock_units"], "n": "Right now"},
+        {"m": "Stock value", "v": k["stock_value"], "n": "Right now, at selling price"},
+        {"m": "Low stock perfumes", "v": k["low_count"], "n": str(LOW_STOCK) + " bottles or less"},
+        {"m": "Sold out perfumes", "v": k["out_count"], "n": "Right now"},
+        {"m": "Perfumes with no sales", "v": k["never_sold_count"], "n": "In this period"},
+    ]
+    money_rows = {"TOTAL REVENUE", "Walk-in revenue", "Online revenue", "Average walk-in sale", "Stock value"}
+    for c, h in enumerate(("Measure", "Value", "Note"), 1):
+        x = ws.cell(row=row, column=c, value=h)
+        x.font = Font(bold=True, color="FFFFFF")
+        x.fill = PatternFill("solid", fgColor=BERRY)
+        if c == 2:
+            x.alignment = Alignment(horizontal="right")
+    for i, m in enumerate(metrics):
+        a, b, c = ws.cell(row=row + 1 + i, column=1, value=m["m"]), ws.cell(row=row + 1 + i, column=2, value=m["v"]), ws.cell(row=row + 1 + i, column=3, value=m["n"])
+        b.number_format = FMT["money"] if m["m"] in money_rows else FMT["int"]
+        b.alignment = Alignment(horizontal="right")
+        c.font = Font(color=GREY)
+        for x in (a, b, c):
+            x.border = Border(bottom=thin)
+        if m["m"] == "TOTAL REVENUE":
+            for x in (a, b, c):
+                x.font = Font(bold=True, size=12)
+                x.fill = PatternFill("solid", fgColor="FBE7B5")
+    row += len(metrics) + 2
+    row = heading(ws, row, "Highlights")
+    for line in r["insights"]:
+        ws.cell(row=row, column=1, value="- " + line)
+        row += 1
+    row += 1
+    row = heading(ws, row, "How to read this report")
+    for line in (
+        "Revenue only counts money that came in: walk-in sales that are not voided, and online orders that are paid, shipped or delivered.",
+        "Pending online orders are shown on their own. Cancelled orders and voided sales are never counted.",
+        "The report has no cost prices, so it shows sales (revenue), not profit.",
+        "Stock sheets show the stock right now. The stock log shows every change inside the chosen dates.",
+        "All dates and times are Philippine time.",
+    ):
+        ws.cell(row=row, column=1, value="- " + line).font = Font(color=GREY)
+        row += 1
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 20
+    ws.column_dimensions["C"].width = 62
+
+    # ---------- Daily ----------
+    ws = new_sheet("Daily")
+    cols = [("Date", "date", "text"), ("Walk-in sales", "walkin_count", "int"), ("Walk-in revenue", "walkin_total", "money"),
+            ("Online orders", "online_count", "int"), ("Online revenue", "online_total", "money"),
+            ("Total revenue", "total", "money"), ("Voided sales", "voided", "int")]
+    t = {"date": "TOTAL"}
+    for key in ("walkin_count", "walkin_total", "online_count", "online_total", "total", "voided"):
+        t[key] = round(sum(d[key] for d in r["daily"]), 2)
+    table(ws, 1, cols, r["daily"], total=t)
+    finish(ws)
+
+    # ---------- Perfumes ----------
+    ws = new_sheet("Perfumes")
+    cols = [("Perfume", "name", "text"), ("For", "category_label", "text"), ("Walk-in units", "walkin_units", "int"),
+            ("Online units", "online_units", "int"), ("Total units", "units", "int"), ("Revenue", "revenue", "money"),
+            ("Stock now", "stock", "int")]
+    t = {"name": "TOTAL", "walkin_units": sum(a["walkin_units"] for a in r["perfumes"]), "online_units": sum(a["online_units"] for a in r["perfumes"]),
+         "units": sum(a["units"] for a in r["perfumes"]), "revenue": round(sum(a["revenue"] for a in r["perfumes"]), 2)}
+    table(ws, 1, cols, r["perfumes"], total=t)
+    finish(ws)
+
+    # ---------- Breakdown ----------
+    ws = new_sheet("Breakdown")
+    row = heading(ws, 1, "By category")
+    row = table(ws, row, [("Category", "category", "text"), ("Units sold", "units", "int"), ("Revenue", "revenue", "money")], r["categories"])
+    row = heading(ws, row, "Walk-in payment methods")
+    row = table(ws, row, [("Method", "method", "text"), ("Sales", "count", "int"), ("Total", "total", "money")], r["payments"])
+    row = heading(ws, row, "Online orders by status")
+    row = table(ws, row, [("Status", "status", "text"), ("Orders", "count", "int"), ("Value", "total", "money")], r["order_status"])
+    row = heading(ws, row, "Stock changes in this period")
+    table(ws, row, [("Reason", "reason", "text"), ("Times", "count", "int"), ("Bottles added", "units_in", "int"), ("Bottles taken out", "units_out", "int")], r["movement_summary"])
+    finish(ws, filter_ref=False, freeze=None)
+
+    # ---------- Employees ----------
+    ws = new_sheet("Employees")
+    table(ws, 1, [("Employee", "name", "text"), ("Sales", "sales", "int"), ("Perfumes sold", "items", "int"), ("Total", "total", "money"),
+                  ("Average sale", "average", "money"), ("Voided sales", "voided", "int")], r["employees"])
+    finish(ws)
+
+    # ---------- Inventory ----------
+    ws = new_sheet("Inventory")
+    t = {"name": "TOTAL", "stock": sum(i["stock"] for i in r["inventory"]), "value": round(sum(i["value"] for i in r["inventory"]), 2),
+         "sold": sum(i["sold"] for i in r["inventory"])}
+    table(ws, 1, [("Perfume", "name", "text"), ("Brand", "brand", "text"), ("For", "category", "text"), ("Size (ml)", "size_ml", "int"),
+                  ("Price", "price", "money"), ("In stock", "stock", "int"), ("Stock value", "value", "money"), ("Status", "status", "text"),
+                  ("Sold in period", "sold", "int"), ("Days of stock left*", "days_left", "int")], r["inventory"], total=t)
+    n = ws.max_row + 2
+    ws.cell(row=n, column=1, value="* Estimated from how fast it sold in this period. Empty = no sales, or already sold out.").font = Font(italic=True, color=GREY)
+    for rr in range(2, ws.max_row):
+        c = ws.cell(row=rr, column=8)
+        if c.value == "Sold out":
+            c.font = Font(bold=True, color="C0392B")
+        elif c.value == "Low":
+            c.font = Font(bold=True, color="B9770E")
+    finish(ws)
+
+    # ---------- Stock log ----------
+    ws = new_sheet("Stock log")
+    table(ws, 1, [("When", "when", "text"), ("Perfume", "perfume", "text"), ("Change", "change", "int"), ("Stock after", "after", "int"),
+                  ("Reason", "reason", "text"), ("By", "by", "text"), ("Note", "note", "text")], r["movements"])
+    finish(ws)
+
+    # ---------- Walk-in sales ----------
+    ws = new_sheet("Walk-in sales")
+    table(ws, 1, [("#", "id", "int"), ("Date", "date", "text"), ("Time", "time", "text"), ("Employee", "employee", "text"), ("Perfumes", "perfumes", "text"),
+                  ("Payment", "payment", "text"), ("Total", "total", "money"), ("Status", "status", "text"), ("Void reason", "void_reason", "text"),
+                  ("Note", "note", "text")], r["sales"])
+    for rr in range(2, ws.max_row + 1):
+        if ws.cell(row=rr, column=8).value == "VOIDED":
+            for cc in range(1, 11):
+                ws.cell(row=rr, column=cc).font = Font(color="B03A2E", strike=(cc in (7,)))
+    finish(ws)
+
+    # ---------- Online orders ----------
+    ws = new_sheet("Online orders")
+    table(ws, 1, [("Order #", "id", "int"), ("Date", "date", "text"), ("Time", "time", "text"), ("Customer", "customer", "text"), ("Email", "email", "text"),
+                  ("Perfumes", "perfumes", "text"), ("Total", "total", "money"), ("Status", "status", "text")], r["orders"])
+    finish(ws)
+
+    # ---------- Customers ----------
+    ws = new_sheet("Top customers")
+    table(ws, 1, [("Customer", "name", "text"), ("Email", "email", "text"), ("Orders", "orders", "int"), ("Total spent", "total", "money")], r["customers"])
+    finish(ws)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@app.get("/reports/summary")
+def report_summary(start: Optional[str] = None, end: Optional[str] = None, admin=Depends(admin_only)):
+    d1, d2 = report_period(start, end)
+    return build_report(d1, d2, load_report_data(d1, d2), admin["name"])
+
+
+@app.get("/reports/export")
+def report_export(start: Optional[str] = None, end: Optional[str] = None, admin=Depends(admin_only)):
+    d1, d2 = report_period(start, end)
+    data = make_xlsx(build_report(d1, d2, load_report_data(d1, d2), admin["name"]))
+    name = "SCNTS-report-" + d1.isoformat() + "_to_" + d2.isoformat() + ".xlsx"
+    return Response(content=data, headers={
+        "Content-Disposition": 'attachment; filename="' + name + '"',
+        "Access-Control-Expose-Headers": "Content-Disposition",
+        "Cache-Control": "no-store",
+    }, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
