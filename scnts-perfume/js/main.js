@@ -96,10 +96,16 @@ function buildLayout() {
   var user = getUser();
   var page = location.pathname.split("/").pop() || "index.html";
   var loggedIn = !!getToken();
+  var role = user ? user.role : "";
   var links = [["index.html", "Home"], ["shop.html", "Shop"]];
-  if (loggedIn) links.push(["favorites.html", "Favorites"], ["my-orders.html", "My orders"]);
-  links.push(["about.html", "About"], ["contact.html", "Contact"]);
-  if (loggedIn && user && user.role === "admin") links.push(["admin.html", "Admin"]);
+  if (loggedIn && (role === "employee" || role === "admin")) {
+    // staff menu
+    links.push(["pos.html", "POS"], ["inventory.html", "Inventory"]);
+    if (role === "admin") links.push(["sales.html", "Sales"], ["staff.html", "Staff"], ["admin.html", "Products"]);
+  } else {
+    if (loggedIn) links.push(["favorites.html", "Favorites"], ["my-orders.html", "My orders"]);
+    links.push(["about.html", "About"], ["contact.html", "Contact"]);
+  }
 
   var nav = links.map(function (l) {
     return '<a href="' + l[0] + '"' + (page === l[0] ? ' class="active"' : "") + ">" + l[1] + "</a>";
@@ -130,6 +136,43 @@ function buildLayout() {
     footer.innerHTML = '<div class="container">© ' + new Date().getFullYear() + " SCNTS Perfume. All rights reserved.</div>";
   }
   updateCartCount();
+}
+
+// Ask the server who we are (so a new role shows without logging in again)
+async function refreshUser() {
+  if (!getToken()) return null;
+  try {
+    var me = await api("/auth/me");
+    var old = getUser();
+    localStorage.setItem("scnts_user", JSON.stringify(me));
+    if (!old || old.role !== me.role) buildLayout();
+    return me;
+  } catch (e) {
+    return getUser();
+  }
+}
+
+// For staff pages: returns the user, or shows the "not allowed" box and returns null
+async function requireRole(roles) {
+  var u = await refreshUser();
+  var ok = u && roles.indexOf(u.role) !== -1;
+  var content = document.getElementById("staff-content");
+  var denied = document.getElementById("denied");
+  if (content) content.style.display = ok ? "block" : "none";
+  if (denied) denied.style.display = ok ? "none" : "block";
+  return ok ? u : null;
+}
+
+function today() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
+function timeText(iso) {
+  return new Date(iso).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" });
+}
+
+function dateTimeText(iso) {
+  return new Date(iso).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" });
 }
 
 document.addEventListener("DOMContentLoaded", buildLayout);
