@@ -103,7 +103,7 @@ function buildLayout() {
     // Staff menu: only work pages. No shop, cart, favorites, my orders, about or contact.
     links.push(["pos.html", "POS"], ["inventory.html", "Inventory"]);
     if (role === "admin") {
-      links.push(["orders.html", "Orders"], ["sales.html", "Sales"], ["staff.html", "Staff"], ["admin.html", "Products"]);
+      links.push(["orders.html", "Orders"], ["sales.html", "Sales"], ["reports.html", "Reports"], ["staff.html", "Staff"], ["admin.html", "Products"]);
     }
   } else {
     // Customer / guest menu
