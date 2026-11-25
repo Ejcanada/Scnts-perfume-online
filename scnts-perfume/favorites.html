@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Favorites - SCNTS Perfume</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <script src="js/api.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <h1 class="page-title">Favorites</h1>
+    <p class="sub">Perfumes you saved with the heart.</p>
+    <div id="grid" class="grid"></div>
+  </main>
+  <footer id="site-footer"></footer>
+
+  <script src="js/main.js"></script>
+  <script src="js/shop.js"></script>
+  <script>
+    var favProducts = [];
+
+    function redraw() {
+      drawProducts(favProducts.filter(function (p) { return favIds.has(p.id); }), "grid", "No favorites yet. Tap the heart on a perfume.");
+    }
+
+    document.addEventListener("DOMContentLoaded", async function () {
+      try {
+        var data = await api("/favorites");
+        favProducts = data.favorites.map(function (f) { return f.product; }).filter(Boolean);
+        favIds = new Set(favProducts.map(function (p) { return p.id; }));
+        favProducts.forEach(function (p) { productsById[p.id] = p; });
+        redraw();
+        // when a heart is turned off, remove the card
+        setupGridClicks("grid", redraw);
+      } catch (err) {
+        document.getElementById("grid").innerHTML = '<p class="empty">' + esc(err.message) + "</p>";
+      }
+    });
+  </script>
+</body>
+</html>

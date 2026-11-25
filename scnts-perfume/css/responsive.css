@@ -1,0 +1,15 @@
+/* SCNTS Perfume - phone and tablet styles */
+@media (max-width: 800px) {
+  .menu-btn { display: block; }
+  .nav { position: relative; }
+  .nav-links { display: none; position: absolute; top: 64px; left: 0; right: 0; background: #000; flex-direction: column; align-items: flex-start; padding: 16px; gap: 14px; border-bottom: 1px solid var(--line); }
+  .nav-links.open { display: flex; }
+  .detail { grid-template-columns: 1fr; }
+  .form-grid { grid-template-columns: 1fr; }
+  .hero { padding: 40px 16px; }
+}
+@media (max-width: 480px) {
+  .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .page-title { font-size: 1.8rem; }
+  .card-actions { flex-direction: column; }
+}

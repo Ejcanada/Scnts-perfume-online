@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SCNTS Perfume</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <script src="js/api.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <section class="hero">
+      <h1>Find your signature scent</h1>
+      <p>Luxury perfumes for men, women and everyone. Warm, fresh and unforgettable.</p>
+      <a class="btn" href="shop.html">Shop now</a>
+    </section>
+
+    <h2 class="page-title">Featured perfumes</h2>
+    <p class="sub">A few of our favorites.</p>
+    <div id="grid" class="grid"></div>
+  </main>
+  <footer id="site-footer"></footer>
+
+  <script src="js/main.js"></script>
+  <script src="js/shop.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async function () {
+      setupGridClicks("grid");
+      await loadFavIds();
+      try {
+        var data = await api("/products");
+        drawProducts(data.products.slice(0, 4), "grid", "No perfumes yet.");
+      } catch (err) {
+        document.getElementById("grid").innerHTML = '<p class="empty">' + esc(err.message) + "</p>";
+      }
+    });
+  </script>
+</body>
+</html>
