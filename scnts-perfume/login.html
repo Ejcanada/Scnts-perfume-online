@@ -56,7 +56,8 @@
     function nextPage() {
       var n = new URLSearchParams(location.search).get("next");
       if (n && /^[A-Za-z0-9_\-]+\.html(\?[A-Za-z0-9_=&%.\-]*)?$/.test(n)) return n;
-      return "index.html";
+      var u = getUser();
+      return (u && (u.role === "admin" || u.role === "employee")) ? "pos.html" : "index.html";
     }
 
     // Already logged in? Go on.
