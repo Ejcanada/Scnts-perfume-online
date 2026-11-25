@@ -45,3 +45,29 @@
 
 #clear-btn { margin-top: 10px; }
 .box .cards { margin-top: 12px; }
+
+/* ---------- customer orders page ---------- */
+.badge.info { background: rgba(120, 160, 255, .16); color: #bcd1ff; }
+.badge.ship { background: rgba(190, 140, 255, .16); color: #dcc4ff; }
+.stat.attn .n { color: #ffcc66; }
+.date-bar .chips { flex: 1 1 100%; }
+.order-card { display: grid; grid-template-columns: 1fr 260px; gap: 26px; border-left: 3px solid var(--line-strong); }
+.order-card.st-pending { border-left-color: #ffcc66; }
+.order-card.st-paid { border-left-color: #8fb0ff; }
+.order-card.st-shipped { border-left-color: #c9a0ff; }
+.order-card.st-delivered { border-left-color: #4fd19a; }
+.order-card.st-cancelled { border-left-color: #ef5b5b; opacity: .72; }
+.o-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.o-id { font-family: "Cormorant Garamond", serif; font-size: 1.7rem; font-weight: 600; color: var(--gold-2); }
+.o-date { color: var(--muted); font-size: .82rem; margin-left: auto; }
+.o-who { margin-bottom: 8px; line-height: 1.35; }
+.o-who small { color: var(--muted); }
+.o-side { border-left: 1px dashed var(--line-strong); padding-left: 24px; }
+.o-side .l { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .14em; }
+.o-total { font-family: "Cormorant Garamond", serif; font-size: 2.3rem; font-weight: 600; color: var(--gold-2); line-height: 1.1; margin-bottom: 4px; }
+.o-hint { color: var(--muted); font-size: .78rem; margin-top: 8px; }
+@media (max-width: 800px) {
+  .order-card { grid-template-columns: 1fr; gap: 14px; }
+  .o-side { border-left: none; padding-left: 0; border-top: 1px dashed var(--line-strong); padding-top: 14px; }
+  .o-date { margin-left: 0; width: 100%; }
+}
