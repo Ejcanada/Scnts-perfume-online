@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin - SCNTS Perfume</title>
+  <title>Products - SCNTS Perfume</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="images/favicon.png">
@@ -16,7 +16,8 @@
 <body>
   <header id="site-header"></header>
   <main class="container">
-    <h1 class="page-title">Admin</h1>
+    <h1 class="page-title">Products</h1>
+    <p class="sub">Add, edit or remove perfumes. Customer orders are on the Orders page.</p>
 
     <div id="not-admin" style="display:none">
       <div class="box"><p>Admins only. Your account does not have admin access.</p></div>
@@ -57,16 +58,6 @@
           <table>
             <thead><tr><th>ID</th><th>Name</th><th>Brand</th><th>Category</th><th>Price</th><th>Stock</th><th></th></tr></thead>
             <tbody id="product-rows"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="box">
-        <h2>Orders</h2>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Date</th><th>Status</th></tr></thead>
-            <tbody id="order-rows"></tbody>
           </table>
         </div>
       </div>
