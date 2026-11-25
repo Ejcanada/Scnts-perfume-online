@@ -1,7 +1,6 @@
-// admin.js - admin page: manage perfumes and orders
+// admin.js - Products page: add, edit and delete perfumes (orders are in orders.js)
 
 var editId = null;
-var STATUSES = ["pending", "paid", "shipped", "delivered", "cancelled"];
 var adminProducts = {};
 
 function formValue(id) { return document.getElementById(id).value.trim(); }
@@ -26,25 +25,8 @@ async function loadAdminProducts() {
   }).join("");
 }
 
-async function loadAdminOrders() {
-  var data = await api("/orders/all");
-  var rows = document.getElementById("order-rows");
-  if (!data.orders.length) {
-    rows.innerHTML = '<tr><td colspan="5" class="empty">No orders yet.</td></tr>';
-    return;
-  }
-  rows.innerHTML = data.orders.map(function (o) {
-    var options = STATUSES.map(function (s) {
-      return '<option value="' + s + '"' + (s === o.status ? " selected" : "") + ">" + s + "</option>";
-    }).join("");
-    var who = o.user ? esc(o.user.name) + "<br><small>" + esc(o.user.email) + "</small>" : "User " + o.user_id;
-    return "<tr><td>#" + o.id + "</td><td>" + who + "</td><td>" + money(o.total) + "</td><td>" +
-      new Date(o.created_at).toLocaleDateString() + '</td><td><select data-order="' + o.id + '">' + options + "</select></td></tr>";
-  }).join("");
-}
-
 document.addEventListener("DOMContentLoaded", async function () {
-  var user = getUser();
+  var user = (await refreshUser()) || getUser();
   if (!user || user.role !== "admin") {
     document.getElementById("admin-content").style.display = "none";
     document.getElementById("not-admin").style.display = "block";
@@ -53,7 +35,6 @@ document.addEventListener("DOMContentLoaded", async function () {
 
   try {
     await loadAdminProducts();
-    await loadAdminOrders();
   } catch (err) {
     showMsg("msg", err.message, "error");
   }
@@ -120,18 +101,6 @@ document.addEventListener("DOMContentLoaded", async function () {
       } catch (err) {
         showMsg("msg", err.message, "error");
       }
-    }
-  });
-
-  document.getElementById("order-rows").addEventListener("change", async function (e) {
-    var sel = e.target.closest("select[data-order]");
-    if (!sel) return;
-    try {
-      await api("/orders/" + sel.dataset.order + "/status", "PATCH", { status: sel.value });
-      toast("Order status updated");
-    } catch (err) {
-      showMsg("msg", err.message, "error");
-      loadAdminOrders();   // put the dropdown back to the saved status
     }
   });
 });
