@@ -1,0 +1,47 @@
+/* Staff pages: POS, inventory, sales, staff. Big and simple on purpose. */
+.pos-wrap { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; align-items: start; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip { background: var(--card); border: 1px solid var(--line); color: var(--text); padding: 10px 18px; border-radius: 22px; font-size: 1rem; cursor: pointer; }
+.chip.active { background: var(--gold); color: #000; border-color: var(--gold); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.tile { background: var(--card); border: 2px solid var(--line); color: var(--text); border-radius: 12px; padding: 14px 10px; text-align: center; cursor: pointer; font-family: inherit; min-height: 120px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.tile:hover { border-color: var(--gold); }
+.tile .t-name { font-size: 1.15rem; font-weight: 600; line-height: 1.2; }
+.tile .t-price { color: var(--gold); font-weight: 700; font-size: 1.1rem; }
+.tile .t-stock { font-size: 0.9rem; color: var(--muted); }
+.tile.low .t-stock { color: #ffb74d; font-weight: 600; }
+.tile:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--line); }
+.sale-panel { position: sticky; top: 76px; }
+.sale-line { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.sale-line .nm { flex: 1; font-size: 1.05rem; }
+.sale-line .qtybox { display: inline-flex; align-items: center; gap: 8px; }
+.sale-line .qtybox button { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: rgba(0, 0, 0, .35); color: var(--text); font-size: 1.3rem; cursor: pointer; }
+.sale-line .qtybox span { min-width: 24px; text-align: center; font-size: 1.2rem; font-weight: 700; }
+.big-total { font-size: 2.2rem; color: var(--gold); font-weight: 700; text-align: right; margin: 12px 0; }
+.pay-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0 14px; }
+.pay-options button { padding: 14px; border-radius: 10px; border: 2px solid var(--line); background: rgba(0, 0, 0, .35); color: var(--text); font-size: 1.05rem; cursor: pointer; }
+.pay-options button.active { border-color: var(--gold); background: rgba(232, 184, 75, .16); color: var(--gold); font-weight: 700; }
+.big-btn { width: 100%; font-size: 1.3rem; padding: 18px; border-radius: 12px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.stat .n { font-size: 1.6rem; font-weight: 700; color: var(--gold); }
+.stat .l { color: var(--muted); font-size: 0.85rem; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
+.badge.ok { background: #14301f; color: #9fe0bb; }
+.badge.low { background: #3a2c0f; color: #ffcc66; }
+.badge.out { background: #3a1a19; color: #ffb4b0; }
+.row-void td { text-decoration: line-through; color: var(--muted); }
+.row-void td.keep { text-decoration: none; }
+.neg { color: #ff8a80; }
+.pos-num { color: #9fe0bb; }
+.inline-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.inline-form > div { flex: 1 1 160px; }
+.date-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+.date-bar input, .date-bar select { width: auto; }
+@media (max-width: 800px) {
+  .pos-wrap { grid-template-columns: 1fr; }
+  .sale-panel { position: static; }
+}
+
+#clear-btn { margin-top: 10px; }
+.box .cards { margin-top: 12px; }
