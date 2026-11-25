@@ -494,3 +494,10 @@ tbody tr:hover { background: rgba(227, 191, 122, .05); }
   .slide-copy > *, .slide-art { opacity: 1 !important; transform: none !important; }
   .live-bg canvas, .splash, .tw { display: none !important; }
 }
+
+/* ---------- staff (employee / admin) menu: more items, so a little tighter ---------- */
+.site-header.staff-nav .nav-links { gap: 2px; }
+.site-header.staff-nav .nav-links a { padding: 8px 13px; }
+@media (max-width: 1060px) and (min-width: 801px) {
+  .site-header.staff-nav .nav-links a { padding: 8px 8px; font-size: .74rem; letter-spacing: .03em; }
+}
