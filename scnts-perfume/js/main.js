@@ -96,10 +96,21 @@ function buildLayout() {
   var user = getUser();
   var page = location.pathname.split("/").pop() || "index.html";
   var loggedIn = !!getToken();
-  var links = [["index.html", "Home"], ["shop.html", "Shop"]];
-  if (loggedIn) links.push(["favorites.html", "Favorites"], ["my-orders.html", "My orders"]);
-  links.push(["about.html", "About"], ["contact.html", "Contact"]);
-  if (loggedIn && user && user.role === "admin") links.push(["admin.html", "Admin"]);
+  var role = user ? user.role : "";
+  var isStaff = loggedIn && (role === "employee" || role === "admin");
+  var links = [];
+  if (isStaff) {
+    // Staff menu: only work pages. No shop, cart, favorites, my orders, about or contact.
+    links.push(["pos.html", "POS"], ["inventory.html", "Inventory"]);
+    if (role === "admin") {
+      links.push(["orders.html", "Orders"], ["sales.html", "Sales"], ["reports.html", "Reports"], ["staff.html", "Staff"], ["admin.html", "Products"]);
+    }
+  } else {
+    // Customer / guest menu
+    links.push(["index.html", "Home"], ["shop.html", "Shop"]);
+    if (loggedIn) links.push(["favorites.html", "Favorites"], ["my-orders.html", "My orders"]);
+    links.push(["about.html", "About"], ["contact.html", "Contact"]);
+  }
 
   var nav = links.map(function (l) {
     return '<a href="' + l[0] + '"' + (page === l[0] ? ' class="active"' : "") + ">" + l[1] + "</a>";
@@ -107,13 +118,13 @@ function buildLayout() {
 
   var header = document.getElementById("site-header");
   if (header) {
-    header.className = "site-header";
+    header.className = "site-header" + (isStaff ? " staff-nav" : "");
     header.innerHTML = '<div class="container nav">' +
-      '<a class="logo" href="index.html">SCNTS</a>' +
+      '<a class="logo" href="' + (isStaff ? "pos.html" : "index.html") + '">SCNTS</a>' +
       '<button class="menu-btn" id="menu-btn" aria-label="Menu">☰</button>' +
       '<div class="nav-links" id="nav-links">' + nav +
       (loggedIn
-        ? '<a class="cart-link" href="cart.html">Cart<span id="cart-count">0</span></a>' +
+        ? (isStaff ? "" : '<a class="cart-link" href="cart.html">Cart<span id="cart-count">0</span></a>') +
           '<a href="#" id="logout-link">Logout' + (user ? " (" + esc(user.name.split(" ")[0]) + ")" : "") + "</a>"
         : '<a href="login.html">Login / Sign up</a>') +
       "</div></div>";
@@ -130,6 +141,51 @@ function buildLayout() {
     footer.innerHTML = '<div class="container">© ' + new Date().getFullYear() + " SCNTS Perfume. All rights reserved.</div>";
   }
   updateCartCount();
+}
+
+// Staff (employee / admin) have no customer cart, favorites or "my orders": send them to the POS
+(function keepStaffOut() {
+  var u = getUser();
+  var page = location.pathname.split("/").pop();
+  var customerOnly = ["cart.html", "checkout.html", "favorites.html", "my-orders.html"];
+  if (u && (u.role === "employee" || u.role === "admin") && customerOnly.indexOf(page) !== -1) location.replace("pos.html");
+})();
+
+// Ask the server who we are (so a new role shows without logging in again)
+async function refreshUser() {
+  if (!getToken()) return null;
+  try {
+    var me = await api("/auth/me");
+    var old = getUser();
+    localStorage.setItem("scnts_user", JSON.stringify(me));
+    if (!old || old.role !== me.role) buildLayout();
+    return me;
+  } catch (e) {
+    return getUser();
+  }
+}
+
+// For staff pages: returns the user, or shows the "not allowed" box and returns null
+async function requireRole(roles) {
+  var u = await refreshUser();
+  var ok = u && roles.indexOf(u.role) !== -1;
+  var content = document.getElementById("staff-content");
+  var denied = document.getElementById("denied");
+  if (content) content.style.display = ok ? "block" : "none";
+  if (denied) denied.style.display = ok ? "none" : "block";
+  return ok ? u : null;
+}
+
+function today() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
+function timeText(iso) {
+  return new Date(iso).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" });
+}
+
+function dateTimeText(iso) {
+  return new Date(iso).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" });
 }
 
 document.addEventListener("DOMContentLoaded", buildLayout);

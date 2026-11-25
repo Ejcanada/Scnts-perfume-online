@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inventory - SCNTS Perfume</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <meta name="theme-color" content="#a3134f">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/staff.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <script src="js/fx.js" defer></script>
+  <script src="js/api.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <div id="denied" style="display:none"><div class="box"><p>Staff only. Your account does not have access to this page.</p></div></div>
+    <div id="staff-content" style="display:none">
+      <h1 class="page-title">Inventory</h1>
+      <p class="sub">How many of each perfume we have now.</p>
+      <div id="msg" class="msg"></div>
+
+      <div class="cards" id="stock-cards"></div>
+
+      <div class="box" id="action-box" style="display:none">
+        <h2 id="action-title"></h2>
+        <form id="action-form" class="inline-form">
+          <div id="qty-wrap"><label id="qty-label" for="a-qty">Quantity</label><input id="a-qty" type="number" min="0" required></div>
+          <div id="reason-wrap" style="display:none"><label for="a-reason">Reason</label>
+            <select id="a-reason">
+              <option value="count">Stock count (I counted)</option>
+              <option value="damaged">Damaged or lost</option>
+              <option value="adjustment">Other fix</option>
+            </select></div>
+          <div><label for="a-note">Note (optional)</label><input id="a-note" maxlength="200"></div>
+          <div style="flex:0 0 auto"><button class="btn" type="submit">Save</button> <button class="btn btn-outline" type="button" id="a-cancel">Cancel</button></div>
+        </form>
+      </div>
+
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Search perfume...">
+        <select id="filter">
+          <option value="">All</option>
+          <option value="low">Low stock (5 or less)</option>
+          <option value="out">Sold out</option>
+        </select>
+      </div>
+      <div class="box">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Perfume</th><th>For</th><th>Price</th><th>In stock</th><th id="act-head"></th></tr></thead>
+            <tbody id="stock-rows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="box" id="history-box" style="display:none">
+        <h2>Stock history</h2>
+        <p class="sub">Every change to the stock is written here: who did it, when, and why.</p>
+        <div class="date-bar"><select id="h-product"><option value="">All perfumes</option></select></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>When</th><th>Perfume</th><th>Change</th><th>Stock after</th><th>Reason</th><th>By</th><th>Note</th></tr></thead>
+            <tbody id="history-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+
+  <script src="js/main.js"></script>
+  <script src="js/inventory.js"></script>
+</body>
+</html>

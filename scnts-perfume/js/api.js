@@ -9,7 +9,8 @@ function getUser() {
 }
 
 // Pages that need a login. Everything else can be opened as a guest.
-var PROTECTED_PAGES = ["cart.html", "checkout.html", "my-orders.html", "favorites.html", "admin.html"];
+var PROTECTED_PAGES = ["cart.html", "checkout.html", "my-orders.html", "favorites.html", "admin.html",
+  "pos.html", "inventory.html", "sales.html", "staff.html", "orders.html", "reports.html"];
 
 function currentPage() {
   return location.pathname.split("/").pop() || "index.html";
