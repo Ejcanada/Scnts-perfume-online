@@ -111,7 +111,7 @@ function addToCart(p, qty) {
 function categoryLabel(c) {
   if (c === "men") return "For him";
   if (c === "women") return "For her";
-  return "Unisex";
+  return "Perfume";
 }
 
 // ---------- product card used by Home, Shop and Favorites ----------
@@ -229,7 +229,7 @@ function buildLayout() {
           ? '<a href="#" id="drawer-logout">Logout' + (user ? " (" + firstName + ")" : "") + "</a>"
           : '<a href="login.html">Log in</a><a href="login.html">Create an account</a>') + "</div>" +
         (isStaff ? "" :
-          '<div class="d-tabs"><a href="shop.html?category=men">For him</a><a href="shop.html?category=women">For her</a><a href="shop.html?category=unisex">Unisex</a></div>' +
+          '<div class="d-tabs"><a href="shop.html?category=men">For him</a><a href="shop.html?category=women">For her</a></div>' +
           '<div class="d-contact"><a href="mailto:' + SHOP_EMAIL + '">' + SHOP_EMAIL + '</a><a href="tel:+639568963077">0956 896 3077</a></div>') +
       "</div>";
     document.body.appendChild(d);
@@ -264,7 +264,7 @@ function buildLayout() {
           '<div class="foot-cols">' +
             footCol("Customer care", [["contact.html", "Contact us"], ["my-orders.html", "My orders"], ["favorites.html", "Favorites"], [loggedIn ? "#" : "login.html", loggedIn ? "Logout" : "Log in"]]) +
             footCol("The house", [["index.html", "Home"], ["about.html", "Our story"], ["contact.html", "Contact"]]) +
-            footCol("Shop", [["shop.html", "All fragrances"], ["shop.html?category=men", "For him"], ["shop.html?category=women", "For her"], ["shop.html?category=unisex", "Unisex"]]) +
+            footCol("Shop", [["shop.html", "All fragrances"], ["shop.html?category=men", "For him"], ["shop.html?category=women", "For her"]]) +
           "</div>" +
           '<div class="foot-cta"><p class="foot-script">Stay close to the house</p>' +
             "<p>Questions about a scent or an order? Reach us here.</p>" +
