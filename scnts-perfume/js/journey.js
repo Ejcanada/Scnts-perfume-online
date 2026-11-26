@@ -161,7 +161,7 @@
     paint(state.list[state.i], false);
     root.classList.remove("in"); void root.offsetWidth; root.classList.add("in");
     // fly the card's poster into the stage
-    var src = from && from.querySelector(".pimg img"), dest = root.querySelector(".jy-poster");
+    var src = from && from.querySelector(".pimg img, img"), dest = root.querySelector(".jy-poster");
     if (src && !reduce && dest.animate) {
       var a = src.getBoundingClientRect();
       requestAnimationFrame(function () {
