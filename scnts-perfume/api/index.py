@@ -179,9 +179,228 @@ def merge_items(items):
     return wanted
 
 
+PUBLIC_COLS = "id,name,brand,description,price,size_ml,category,stock,image_url,created_at"   # never company_price
+
+
+def slugify(text):
+    text = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+    return text[:40] or "shop"
+
+
+def reseller_by_slug(slug):
+    """The staff member behind a shop link. None if the link is not valid."""
+    slug = (slug or "").strip().lower()
+    if not slug:
+        return None
+    res = run(db().table("users").select("id,name,is_active,shop_slug,role:roles(role)").eq("shop_slug", slug).limit(1))
+    if not res.data or not res.data[0]["is_active"] or role_name(res.data[0]) not in STAFF_ROLES:
+        return None
+    return res.data[0]
+
+
+def ensure_slug(user_id, name):
+    cur = run(db().table("users").select("shop_slug").eq("id", user_id).limit(1))
+    if cur.data and cur.data[0].get("shop_slug"):
+        return cur.data[0]["shop_slug"]
+    slug = slugify(name) + "-" + str(user_id)
+    run(db().table("users").update({"shop_slug": slug}).eq("id", user_id))
+    return slug
+
+
+def reseller_price_map(user_id):
+    rows = run(db().table("reseller_prices").select("product_id,price").eq("user_id", user_id)).data
+    return {r["product_id"]: float(r["price"]) for r in rows}
+
+
+def seller_price(product, mine):
+    """What this reseller sells it for: their own price, but never under the company price."""
+    price = mine.get(product["id"], float(product["price"]))
+    return max(price, float(product.get("company_price") or 0))
+
+
+def with_reseller_prices(products, user_id):
+    mine = reseller_price_map(user_id)
+    for p in products:
+        p["price"] = seller_price(p, mine)
+        p.pop("company_price", None)
+    return products
+
+
 def load_products(ids):
-    found = run(db().table("products").select("id,name,price,stock").in_("id", ids))
+    found = run(db().table("products").select("id,name,price,stock,category,company_price").in_("id", ids))
     return {p["id"]: p for p in found.data}
+
+
+# ---------------------------------------------------------------
+# Promo engine. All money is counted in cents (whole numbers) so
+# there are no rounding surprises.
+# ---------------------------------------------------------------
+def cents(x):
+    return int(round(float(x) * 100))
+
+
+def ph_today():
+    return datetime.now(PH_TZ).date().isoformat()
+
+
+def promo_is_live(promo, today=None):
+    today = today or ph_today()
+    if not promo.get("is_active"):
+        return False
+    if promo.get("starts_on") and today < str(promo["starts_on"]):
+        return False
+    if promo.get("ends_on") and today > str(promo["ends_on"]):
+        return False
+    return True
+
+
+def promo_matches(promo, unit):
+    if promo["scope"] == "product":
+        return unit["pid"] == promo["product_id"]
+    if promo["scope"] == "category":
+        return unit["category"] == promo["category"]
+    return True
+
+
+def apply_promo(promo, pool):
+    """Work out one promo on the units that are still free (pool).
+    Returns (discount_in_cents, {pid: cents}, used_units)."""
+    mine = sorted([u for u in pool if promo_matches(promo, u)], key=lambda u: -u["price"])
+    t = promo["promo_type"]
+    groups = []
+    if t == "bundle":
+        n = int(promo["buy_qty"] or 0)
+        price = cents(promo["value"] or 0)
+        if n >= 2:
+            for i in range(0, len(mine) - n + 1, n):
+                g = mine[i:i + n]
+                s = sum(u["price"] for u in g)
+                if s > price:
+                    groups.append((g, s - price, None))
+    elif t == "buy_get":
+        x, y = int(promo["buy_qty"] or 0), int(promo["get_qty"] or 0)
+        if x >= 1 and y >= 1:
+            size = x + y
+            for i in range(0, len(mine) - size + 1, size):
+                g = mine[i:i + size]
+                free = g[-y:]                         # cheapest ones are free
+                groups.append((g, sum(u["price"] for u in free), free))
+    elif t == "percent":
+        if len(mine) >= int(promo["min_qty"] or 1) and mine:
+            pct = float(promo["value"] or 0)
+            parts = [(u, int(round(u["price"] * pct / 100.0))) for u in mine]
+            groups.append((mine, sum(d for _, d in parts), parts))
+    elif t == "amount":
+        if len(mine) >= int(promo["min_qty"] or 1) and mine:
+            off = cents(promo["value"] or 0)
+            parts = [(u, min(off, u["price"])) for u in mine]
+            groups.append((mine, sum(d for _, d in parts), parts))
+
+    total, per, used = 0, {}, []
+    for g, d, extra in groups:
+        if d <= 0:
+            continue
+        total += d
+        used.extend(g)
+        if t == "bundle":
+            s = sum(u["price"] for u in g)
+            share = [int(d * u["price"] // s) for u in g]
+            share[0] += d - sum(share)
+            for u, sh in zip(g, share):
+                per[u["pid"]] = per.get(u["pid"], 0) + sh
+        elif t == "buy_get":
+            for u in extra:
+                per[u["pid"]] = per.get(u["pid"], 0) + u["price"]
+        else:
+            for u, sh in extra:
+                per[u["pid"]] = per.get(u["pid"], 0) + sh
+    return total, per, used
+
+
+def price_sale(items, products, promos, enforce_floor=False):
+    """items: [{product_id, quantity, price|None}], products: id -> row, promos: list of promo rows
+    (already chosen by the staff, in the order they chose). Returns a full price breakdown."""
+    lines, order = {}, []
+    for it in items:
+        pid = it["product_id"]
+        p = products.get(pid)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Perfume " + str(pid) + " not found.")
+        listed = cents(p["price"])
+        use = cents(it["price"]) if it.get("price") is not None else listed
+        floor = cents(p.get("company_price") or 0)
+        if enforce_floor and use < floor:
+            raise HTTPException(status_code=422, detail="The lowest price for " + p["name"] + " is " + format(floor / 100.0, ",.2f") + " (company price).")
+        if pid in lines:
+            if lines[pid]["price"] != use:
+                raise HTTPException(status_code=422, detail="Use one price per perfume (" + p["name"] + ").")
+            lines[pid]["quantity"] += it["quantity"]
+        else:
+            lines[pid] = {"product_id": pid, "name": p["name"], "quantity": it["quantity"],
+                          "list_price": listed, "price": use, "custom": use != listed, "discount": 0,
+                          "category": p.get("category"), "company": floor}
+            order.append(pid)
+
+    # only perfumes at their normal price can join a promo
+    pool = []
+    for pid in order:
+        ln = lines[pid]
+        if not ln["custom"]:
+            pool.extend({"pid": pid, "price": ln["price"], "category": ln["category"]} for _ in range(ln["quantity"]))
+
+    applied = []
+    for promo in promos:
+        d, per, used = apply_promo(promo, pool)
+        if d <= 0:
+            continue
+        ids = set(id(u) for u in used)
+        pool = [u for u in pool if id(u) not in ids]
+        for pid, c in per.items():
+            lines[pid]["discount"] += c
+        applied.append({"promo_id": promo["id"], "name": promo["name"], "discount": d})
+
+    list_total = sum(l["list_price"] * l["quantity"] for l in lines.values())
+    gross = sum(l["price"] * l["quantity"] for l in lines.values())
+    promo_discount = sum(a["discount"] for a in applied)
+    out_lines = []
+    company_total = 0
+    for pid in order:
+        l = lines[pid]
+        company_total += l["company"] * l["quantity"]
+        if enforce_floor and l["price"] * l["quantity"] - l["discount"] < l["company"] * l["quantity"]:
+            raise HTTPException(status_code=409, detail="The promo is too big for " + l["name"] + ": the price after the promo would be lower than the company price (" + format(l["company"] / 100.0, ",.2f") + " each). Use a smaller promo or untick it.")
+        out_lines.append({
+            "product_id": pid, "name": l["name"], "quantity": l["quantity"],
+            "list_price": l["list_price"] / 100.0, "price": l["price"] / 100.0, "custom": l["custom"],
+            "company_price": l["company"] / 100.0, "discount": l["discount"] / 100.0, "line_total": (l["price"] * l["quantity"] - l["discount"]) / 100.0,
+        })
+    return {
+        "lines": out_lines,
+        "list_total": list_total / 100.0,
+        "price_adjust": (gross - list_total) / 100.0,      # minus = staff sold cheaper, plus = sold higher
+        "promos": [{"promo_id": a["promo_id"], "name": a["name"], "discount": a["discount"] / 100.0} for a in applied],
+        "promo_discount": promo_discount / 100.0,
+        "total": (gross - promo_discount) / 100.0,
+        "company_total": company_total / 100.0,
+        "profit": (gross - promo_discount - company_total) / 100.0,
+    }
+
+
+def load_chosen_promos(ids):
+    """The promos the staff picked. They must exist and be live today."""
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return []
+    found = {p["id"]: p for p in run(db().table("promos").select("*").in_("id", ids)).data}
+    chosen = []
+    for pid in ids:
+        p = found.get(pid)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Promo " + str(pid) + " was not found.")
+        if not promo_is_live(p):
+            raise HTTPException(status_code=409, detail="The promo \"" + p["name"] + "\" is not running now.")
+        chosen.append(p)
+    return chosen
 
 
 # ---------------------------------------------------------------
@@ -210,6 +429,7 @@ class ProductIn(BaseModel):
     category: str = Field(pattern="^(men|women|unisex)$")
     stock: int = Field(default=0, ge=0, le=100000)
     image_url: Optional[str] = Field(default=None, max_length=500)
+    company_price: float = Field(default=250, ge=0, le=1000000)
 
 
 class ProductUpdate(BaseModel):
@@ -222,6 +442,7 @@ class ProductUpdate(BaseModel):
     category: Optional[str] = Field(default=None, pattern="^(men|women|unisex)$")
     stock: Optional[int] = Field(default=None, ge=0, le=100000)
     image_url: Optional[str] = Field(default=None, max_length=500)
+    company_price: Optional[float] = Field(default=None, ge=0, le=1000000)
 
 
 class OrderItemIn(BaseModel):
@@ -233,6 +454,18 @@ class OrderItemIn(BaseModel):
 class OrderIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     items: List[OrderItemIn] = Field(min_length=1, max_length=30)
+    reseller: Optional[str] = Field(default=None, max_length=80)     # the shop link the customer came from
+
+
+class ResellerPrice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    product_id: int = Field(gt=0)
+    price: Optional[float] = Field(default=None, ge=0, le=1000000)   # empty = use the normal shop price
+
+
+class ResellerPricesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prices: List[ResellerPrice] = Field(min_length=1, max_length=300)
 
 
 class StatusIn(BaseModel):
@@ -244,6 +477,7 @@ class SaleItemIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     product_id: int = Field(gt=0)
     quantity: int = Field(ge=1, le=100)
+    price: Optional[float] = Field(default=None, ge=1, le=1000000)   # the staff's own selling price
 
 
 class SaleIn(BaseModel):
@@ -251,6 +485,34 @@ class SaleIn(BaseModel):
     items: List[SaleItemIn] = Field(min_length=1, max_length=50)
     payment_method: str = Field(default="cash", pattern="^(cash|gcash|card|other)$")
     note: Optional[str] = Field(default=None, max_length=200)
+    promo_ids: List[int] = Field(default_factory=list, max_length=10)
+
+
+class QuoteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: List[SaleItemIn] = Field(min_length=1, max_length=50)
+    promo_ids: List[int] = Field(default_factory=list, max_length=10)
+
+
+class PromoIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=2, max_length=80)
+    promo_type: str = Field(pattern="^(bundle|buy_get|percent|amount)$")
+    scope: str = Field(default="all", pattern="^(all|category|product)$")
+    category: Optional[str] = Field(default=None, pattern="^(men|women|unisex)$")
+    product_id: Optional[int] = Field(default=None, gt=0)
+    buy_qty: Optional[int] = Field(default=None, ge=1, le=100)
+    get_qty: Optional[int] = Field(default=None, ge=1, le=100)
+    value: Optional[float] = Field(default=None, ge=0, le=1000000)
+    min_qty: int = Field(default=1, ge=1, le=100)
+    starts_on: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    ends_on: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    note: Optional[str] = Field(default=None, max_length=200)
+
+
+class PromoUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_active: bool
 
 
 class VoidIn(BaseModel):
@@ -381,8 +643,10 @@ def me(user=Depends(current_user)):
 # Products (anyone can look, only admin can change)
 # ---------------------------------------------------------------
 @app.get("/products")
-def list_products(q: Optional[str] = None, category: Optional[str] = None):
-    query = db().table("products").select("*").order("id")
+def list_products(q: Optional[str] = None, category: Optional[str] = None, reseller: Optional[str] = None):
+    shop = reseller_by_slug(reseller) if reseller else None
+    cols = PUBLIC_COLS + (",company_price" if shop else "")
+    query = db().table("products").select(cols).order("id")
     if category:
         if category not in CATEGORIES:
             raise HTTPException(status_code=422, detail="Category must be men, women or unisex.")
@@ -392,15 +656,24 @@ def list_products(q: Optional[str] = None, category: Optional[str] = None):
         if clean:
             query = query.or_("name.ilike.%" + clean + "%,brand.ilike.%" + clean + "%")
     res = run(query)
-    return {"count": len(res.data), "products": res.data}
+    rows = with_reseller_prices(res.data, shop["id"]) if shop else res.data
+    return {"count": len(rows), "products": rows}
+
+
+@app.get("/products/company-prices")
+def company_prices(admin=Depends(admin_only)):
+    rows = run(db().table("products").select("id,company_price").order("id")).data
+    return {"prices": {r["id"]: float(r["company_price"]) for r in rows}}
 
 
 @app.get("/products/{product_id}")
-def get_product(product_id: int):
-    res = run(db().table("products").select("*").eq("id", product_id).limit(1))
+def get_product(product_id: int, reseller: Optional[str] = None):
+    shop = reseller_by_slug(reseller) if reseller else None
+    cols = PUBLIC_COLS + (",company_price" if shop else "")
+    res = run(db().table("products").select(cols).eq("id", product_id).limit(1))
     if not res.data:
         raise HTTPException(status_code=404, detail="Perfume not found.")
-    return res.data[0]
+    return with_reseller_prices(res.data, shop["id"])[0] if shop else res.data[0]
 
 
 @app.post("/products", status_code=201)
@@ -437,7 +710,7 @@ def delete_product(product_id: int, admin=Depends(admin_only)):
 def list_favorites(user=Depends(current_user)):
     res = run(
         db().table("favorites")
-        .select("id,product_id,created_at,product:products(*)")
+        .select("id,product_id,created_at,product:products(id,name,brand,description,price,size_ml,category,stock,image_url)")
         .eq("user_id", user["id"])
         .order("created_at", desc=True)
     )
@@ -467,19 +740,25 @@ def remove_favorite(product_id: int, user=Depends(current_user)):
 # ---------------------------------------------------------------
 # Orders (the server calculates prices, never the browser)
 # ---------------------------------------------------------------
-ORDER_SELECT = "id,user_id,total,status,created_at,order_items(id,product_id,quantity,price,product:products(name,image_url))"
+ORDER_SELECT = "id,user_id,total,status,created_at,reseller:users!orders_reseller_id_fkey(name),order_items(id,product_id,quantity,price,product:products(name,image_url))"
 
 
 @app.post("/orders", status_code=201)
 def create_order(data: OrderIn, user=Depends(current_user)):
     wanted = merge_items(data.items)
     products = load_products(list(wanted.keys()))
+    shop = reseller_by_slug(data.reseller) if data.reseller else None
+    if data.reseller and shop is None:
+        raise HTTPException(status_code=404, detail="This shop link is not working anymore. Please use the main shop.")
+    mine = reseller_price_map(shop["id"]) if shop else {}
 
     total = 0
     for pid, qty in wanted.items():
         p = products.get(pid)
         if p is None:
             raise HTTPException(status_code=404, detail="Perfume " + str(pid) + " not found.")
+        if shop:
+            p["price"] = seller_price(p, mine)
         if qty > 20:
             raise HTTPException(status_code=422, detail="You can order at most 20 of one perfume.")
         if p["stock"] < qty:
@@ -487,12 +766,12 @@ def create_order(data: OrderIn, user=Depends(current_user)):
         total = total + float(p["price"]) * qty
     total = round(total, 2)
 
-    order = run(db().table("orders").insert({"user_id": user["id"], "total": total, "status": "pending"}))
+    order = run(db().table("orders").insert({"user_id": user["id"], "total": total, "status": "pending", "reseller_id": shop["id"] if shop else None}))
     order_id = order.data[0]["id"]
 
     rows = []
     for pid, qty in wanted.items():
-        rows.append({"order_id": order_id, "product_id": pid, "quantity": qty, "price": products[pid]["price"]})
+        rows.append({"order_id": order_id, "product_id": pid, "quantity": qty, "price": products[pid]["price"], "company_price": products[pid]["company_price"]})
     try:
         run(db().table("order_items").insert(rows))
         take_stock(wanted, products, "online_order", user["id"], "Online order #" + str(order_id), order_id=order_id)
@@ -512,7 +791,7 @@ def my_orders(user=Depends(current_user)):
 
 @app.get("/orders/all")
 def all_orders(admin=Depends(admin_only)):
-    select = ORDER_SELECT + ",user:users(name,email)"
+    select = ORDER_SELECT + ",user:users!orders_user_id_fkey(name,email)"
     res = run(db().table("orders").select(select).order("created_at", desc=True))
     return {"count": len(res.data), "orders": res.data}
 
@@ -544,38 +823,71 @@ def change_order_status(order_id: int, data: StatusIn, admin=Depends(admin_only)
 # POS: staff record walk-in sales (employee and admin)
 # ===============================================================
 SALE_SELECT = (
-    "id,employee_id,total,payment_method,note,status,void_reason,voided_at,created_at,"
+    "id,employee_id,total,list_total,promo_discount,payment_method,note,status,void_reason,voided_at,created_at,"
     "employee:users!sales_employee_id_fkey(name),"
-    "sale_items(id,product_id,quantity,price,product:products(name))"
+    "sale_items(id,product_id,quantity,price,list_price,discount,product:products(name)),"
+    "sale_promos(promo_name,discount)"
 )
 
 
-@app.post("/pos/sales", status_code=201)
-def record_sale(data: SaleIn, staff=Depends(staff_only)):
-    wanted = merge_items(data.items)
-    products = load_products(list(wanted.keys()))
+def for_seller(products, staff):
+    """An employee (reseller) starts from her own shop price. Admin starts from the normal price."""
+    if staff["role"] == "admin":
+        return products
+    mine = reseller_price_map(staff["id"])
+    for p in products.values():
+        p["price"] = seller_price(p, mine)
+    return products
 
-    total = 0
+
+def sale_input(data):
+    return [{"product_id": i.product_id, "quantity": i.quantity, "price": i.price} for i in data.items]
+
+
+def check_stock(items, products):
+    wanted = {}
+    for it in items:
+        wanted[it["product_id"]] = wanted.get(it["product_id"], 0) + it["quantity"]
     for pid, qty in wanted.items():
         p = products.get(pid)
         if p is None:
             raise HTTPException(status_code=404, detail="Perfume " + str(pid) + " not found.")
         if p["stock"] < qty:
             raise HTTPException(status_code=409, detail="Not enough stock for " + p["name"] + " (only " + str(p["stock"]) + " left).")
-        total = total + float(p["price"]) * qty
-    total = round(total, 2)
+    return wanted
+
+
+@app.post("/pos/quote")
+def quote_sale(data: QuoteIn, staff=Depends(staff_only)):
+    """Show the staff the price (with their own prices and promos) before the sale is saved."""
+    items = [{"product_id": i.product_id, "quantity": i.quantity, "price": i.price} for i in data.items]
+    products = for_seller(load_products(list({i["product_id"] for i in items})), staff)
+    return price_sale(items, products, load_chosen_promos(data.promo_ids), enforce_floor=staff["role"] != "admin")
+
+
+@app.post("/pos/sales", status_code=201)
+def record_sale(data: SaleIn, staff=Depends(staff_only)):
+    items = sale_input(data)
+    products = for_seller(load_products(list({i["product_id"] for i in items})), staff)
+    wanted = check_stock(items, products)
+    priced = price_sale(items, products, load_chosen_promos(data.promo_ids), enforce_floor=staff["role"] != "admin")
 
     sale = run(db().table("sales").insert({
-        "employee_id": staff["id"], "total": total,
+        "employee_id": staff["id"], "total": priced["total"],
+        "list_total": priced["list_total"], "promo_discount": priced["promo_discount"],
         "payment_method": data.payment_method, "note": data.note,
     }))
     sale_id = sale.data[0]["id"]
 
-    rows = []
-    for pid, qty in wanted.items():
-        rows.append({"sale_id": sale_id, "product_id": pid, "quantity": qty, "price": products[pid]["price"]})
+    rows = [{"sale_id": sale_id, "product_id": l["product_id"], "quantity": l["quantity"],
+             "price": l["price"], "list_price": l["list_price"], "discount": l["discount"],
+             "company_price": l["company_price"]} for l in priced["lines"]]
     try:
         run(db().table("sale_items").insert(rows))
+        if priced["promos"]:
+            run(db().table("sale_promos").insert([
+                {"sale_id": sale_id, "promo_id": a["promo_id"], "promo_name": a["name"], "discount": a["discount"]}
+                for a in priced["promos"]]))
         take_stock(wanted, products, "sale", staff["id"], "Sale #" + str(sale_id), sale_id=sale_id)
     except HTTPException:
         run(db().table("sales").delete().eq("id", sale_id))
@@ -583,6 +895,83 @@ def record_sale(data: SaleIn, staff=Depends(staff_only)):
 
     full = run(db().table("sales").select(SALE_SELECT).eq("id", sale_id).limit(1))
     return full.data[0]
+
+
+# ===============================================================
+# Promos: staff make their own promos (2 for a price, buy 1 get 1, % off, pesos off)
+# ===============================================================
+PROMO_SELECT = "*,creator:users!promos_created_by_fkey(name),product:products(name)"
+
+
+def promo_view(p, today):
+    p["live"] = promo_is_live(p, today)
+    return p
+
+
+@app.get("/promos")
+def list_promos(staff=Depends(staff_only)):
+    today = ph_today()
+    rows = run(db().table("promos").select(PROMO_SELECT).order("created_at", desc=True)).data
+    return {"promos": [promo_view(p, today) for p in rows]}
+
+
+@app.post("/promos", status_code=201)
+def create_promo(data: PromoIn, staff=Depends(staff_only)):
+    t = data.promo_type
+    if data.scope == "category" and not data.category:
+        raise HTTPException(status_code=422, detail="Choose who the promo is for (him, her or unisex).")
+    if data.scope == "product":
+        if not data.product_id:
+            raise HTTPException(status_code=422, detail="Choose the perfume for this promo.")
+        if not run(db().table("products").select("id").eq("id", data.product_id).limit(1)).data:
+            raise HTTPException(status_code=404, detail="That perfume was not found.")
+    if t == "bundle" and (not data.buy_qty or data.buy_qty < 2 or not data.value or data.value <= 0):
+        raise HTTPException(status_code=422, detail="Bundle: enter how many perfumes (2 or more) and the price for all of them.")
+    if t == "buy_get" and (not data.buy_qty or not data.get_qty):
+        raise HTTPException(status_code=422, detail="Buy and get: enter how many to buy and how many are free.")
+    if t == "percent" and (not data.value or not 0 < data.value <= 100):
+        raise HTTPException(status_code=422, detail="Percent off must be from 1 to 100.")
+    if t == "amount" and (not data.value or data.value <= 0):
+        raise HTTPException(status_code=422, detail="Enter how many pesos off.")
+    if data.starts_on and data.ends_on and data.ends_on < data.starts_on:
+        raise HTTPException(status_code=422, detail="The end date cannot be before the start date.")
+
+    row = {
+        "name": data.name.strip(), "promo_type": t, "scope": data.scope,
+        "category": data.category if data.scope == "category" else None,
+        "product_id": data.product_id if data.scope == "product" else None,
+        "buy_qty": data.buy_qty if t in ("bundle", "buy_get") else None,
+        "get_qty": data.get_qty if t == "buy_get" else None,
+        "value": data.value if t != "buy_get" else None,
+        "min_qty": data.min_qty if t in ("percent", "amount") else 1,
+        "starts_on": data.starts_on, "ends_on": data.ends_on,
+        "note": data.note, "created_by": staff["id"],
+    }
+    res = run(db().table("promos").insert(row))
+    full = run(db().table("promos").select(PROMO_SELECT).eq("id", res.data[0]["id"]).limit(1))
+    return promo_view(full.data[0], ph_today())
+
+
+def own_promo(promo_id, staff):
+    cur = run(db().table("promos").select("id,created_by").eq("id", promo_id).limit(1))
+    if not cur.data:
+        raise HTTPException(status_code=404, detail="Promo not found.")
+    if staff["role"] != "admin" and cur.data[0]["created_by"] != staff["id"]:
+        raise HTTPException(status_code=403, detail="You can only change the promos you made.")
+
+
+@app.patch("/promos/{promo_id}")
+def toggle_promo(promo_id: int, data: PromoUpdate, staff=Depends(staff_only)):
+    own_promo(promo_id, staff)
+    run(db().table("promos").update({"is_active": data.is_active}).eq("id", promo_id))
+    return {"message": "Promo updated.", "id": promo_id, "is_active": data.is_active}
+
+
+@app.delete("/promos/{promo_id}")
+def delete_promo(promo_id: int, staff=Depends(staff_only)):
+    own_promo(promo_id, staff)
+    run(db().table("promos").delete().eq("id", promo_id))     # old sales keep the promo name
+    return {"message": "Promo deleted.", "id": promo_id}
 
 
 def sales_of_day(day, staff, employee_id=None):
@@ -653,6 +1042,159 @@ def void_sale(sale_id: int, data: VoidIn, admin=Depends(admin_only)):
         if prod.data:
             change_stock(prod.data[0], item["quantity"], "void", admin["id"], "Sale #" + str(sale_id) + " voided", sale_id=sale_id)
     return {"message": "Sale voided and stock put back.", "id": sale_id}
+
+
+# ===============================================================
+# Reseller: own shop link, own prices (never under the company price) and own earnings
+# ===============================================================
+@app.get("/reseller/shop-info/{slug}")
+def shop_info(slug: str):
+    shop = reseller_by_slug(slug)
+    if shop is None:
+        raise HTTPException(status_code=404, detail="Shop link not found.")
+    return {"slug": shop["shop_slug"], "name": shop["name"]}
+
+
+@app.get("/reseller/shop")
+def my_shop(staff=Depends(staff_only)):
+    slug = ensure_slug(staff["id"], staff["name"])
+    mine = reseller_price_map(staff["id"])
+    prods = run(db().table("products").select(PUBLIC_COLS + ",company_price").order("id")).data
+    rows = []
+    for p in prods:
+        own = mine.get(p["id"])
+        rows.append({
+            "product_id": p["id"], "name": p["name"], "brand": p["brand"], "category": p["category"],
+            "size_ml": p["size_ml"], "stock": p["stock"], "normal_price": float(p["price"]),
+            "company_price": float(p["company_price"]), "own_price": own,
+            "price": seller_price(p, mine),
+        })
+    return {"slug": slug, "name": staff["name"], "products": rows}
+
+
+@app.put("/reseller/shop/prices")
+def save_my_prices(data: ResellerPricesIn, staff=Depends(staff_only)):
+    ids = list({p.product_id for p in data.prices})
+    prods = {p["id"]: p for p in run(db().table("products").select("id,name,company_price").in_("id", ids)).data}
+    to_save, to_clear = [], []
+    for p in data.prices:
+        prod = prods.get(p.product_id)
+        if prod is None:
+            raise HTTPException(status_code=404, detail="Perfume " + str(p.product_id) + " not found.")
+        if p.price is None:
+            to_clear.append(p.product_id)
+        elif cents(p.price) < cents(prod["company_price"]):
+            raise HTTPException(status_code=422, detail="The lowest price for " + prod["name"] + " is " + format(float(prod["company_price"]), ",.2f") + " (company price). You can only add on top of it.")
+        else:
+            to_save.append({"user_id": staff["id"], "product_id": p.product_id, "price": round(p.price, 2),
+                            "updated_at": datetime.now(timezone.utc).isoformat()})
+    if to_save:
+        run(db().table("reseller_prices").upsert(to_save, on_conflict="user_id,product_id"))
+    if to_clear:
+        run(db().table("reseller_prices").delete().eq("user_id", staff["id"]).in_("product_id", to_clear))
+    return {"message": "Prices saved.", "saved": len(to_save), "cleared": len(to_clear)}
+
+
+def blank_totals():
+    return {"sales": 0, "units": 0, "revenue": 0.0, "company": 0.0, "profit": 0.0}
+
+
+def summarize_reseller(sales, orders):
+    """sales: walk-in sales (completed). orders: shop-link orders (not cancelled).
+    Returns one row per reseller and a detail list. Money rounded to 2 decimals."""
+    people = {}
+
+    def who(uid, name):
+        return people.setdefault(uid, {"id": uid, "name": name or "Unknown", "walkin": blank_totals(),
+                                       "shop": blank_totals(), "shop_pending_orders": 0, "shop_pending_value": 0.0})
+
+    detail_sales, detail_orders = [], []
+    for x in sales:
+        if x.get("status") != "completed":
+            continue
+        rev = sum(float(i["price"]) * i["quantity"] - float(i.get("discount") or 0) for i in x["sale_items"])
+        comp = sum(float(i.get("company_price") or 0) * i["quantity"] for i in x["sale_items"])
+        units = sum(i["quantity"] for i in x["sale_items"])
+        w = who(x["employee_id"], (x.get("employee") or {}).get("name"))["walkin"]
+        w["sales"] += 1; w["units"] += units; w["revenue"] += rev; w["company"] += comp; w["profit"] += rev - comp
+        detail_sales.append({"id": x["id"], "at": x["created_at"], "employee_id": x["employee_id"], "payment": x["payment_method"],
+                             "items": ", ".join(str(i["quantity"]) + " x " + ((i.get("product") or {}).get("name") or "Perfume") for i in x["sale_items"]),
+                             "revenue": round(rev, 2), "company": round(comp, 2), "profit": round(rev - comp, 2),
+                             "promo": round(float(x.get("promo_discount") or 0), 2)})
+    for o in orders:
+        st = o["status"]
+        if st == "cancelled":
+            continue
+        rev = sum(float(i["price"]) * i["quantity"] for i in o["order_items"])
+        comp = sum(float(i.get("company_price") or 0) * i["quantity"] for i in o["order_items"])
+        units = sum(i["quantity"] for i in o["order_items"])
+        p = who(o["reseller_id"], (o.get("reseller") or {}).get("name"))
+        if st == "pending":
+            p["shop_pending_orders"] += 1; p["shop_pending_value"] += rev
+        else:
+            t = p["shop"]
+            t["sales"] += 1; t["units"] += units; t["revenue"] += rev; t["company"] += comp; t["profit"] += rev - comp
+        detail_orders.append({"id": o["id"], "at": o["created_at"], "reseller_id": o["reseller_id"], "status": st,
+                              "customer": (o.get("user") or {}).get("name", ""), "units": units,
+                              "revenue": round(rev, 2), "company": round(comp, 2), "profit": round(rev - comp, 2)})
+
+    rows = []
+    for p in people.values():
+        for k in ("walkin", "shop"):
+            for f in ("revenue", "company", "profit"):
+                p[k][f] = round(p[k][f], 2)
+        p["shop_pending_value"] = round(p["shop_pending_value"], 2)
+        p["total_revenue"] = round(p["walkin"]["revenue"] + p["shop"]["revenue"], 2)
+        p["total_profit"] = round(p["walkin"]["profit"] + p["shop"]["profit"], 2)
+        # walk-in: she holds the cash, so she hands the company share to the company.
+        # shop orders: the company holds the cash, so the company owes her the markup.
+        p["give_company"] = p["walkin"]["company"]
+        p["company_owes"] = p["shop"]["profit"]
+        p["net_to_company"] = round(p["give_company"] - p["company_owes"], 2)
+        rows.append(p)
+    rows.sort(key=lambda r: -r["total_profit"])
+    return rows, detail_sales, detail_orders
+
+
+@app.get("/reseller/summary")
+def reseller_summary(start: Optional[str] = None, end: Optional[str] = None, reseller_id: Optional[int] = None,
+                     staff=Depends(staff_only)):
+    d1, d2 = report_period(start, end)
+    first = datetime(d1.year, d1.month, d1.day, tzinfo=PH_TZ)
+    after = datetime(d2.year, d2.month, d2.day, tzinfo=PH_TZ) + timedelta(days=1)
+    s, e = first.isoformat(), after.isoformat()
+    only = staff["id"] if staff["role"] != "admin" else reseller_id
+
+    def sales_q():
+        q = db().table("sales").select(
+            "id,employee_id,status,payment_method,promo_discount,created_at,employee:users!sales_employee_id_fkey(name),"
+            "sale_items(quantity,price,discount,company_price,product:products(name))"
+        ).gte("created_at", s).lt("created_at", e).order("id", desc=True)
+        return q.eq("employee_id", only) if only else q
+
+    def orders_q():
+        q = db().table("orders").select(
+            "id,status,created_at,reseller_id,reseller:users!orders_reseller_id_fkey(name),user:users!orders_user_id_fkey(name),"
+            "order_items(quantity,price,company_price)"
+        ).gte("created_at", s).lt("created_at", e).not_.is_("reseller_id", "null").order("id", desc=True)
+        return q.eq("reseller_id", only) if only else q
+
+    rows, det_sales, det_orders = summarize_reseller(fetch_all(sales_q), fetch_all(orders_q))
+    # admin's own walk-in sales are the company's, not a reseller's
+    if staff["role"] == "admin" and not only:
+        rows = [r for r in rows if r["id"] != staff["id"]]
+    totals = {"revenue": 0.0, "profit": 0.0, "give_company": 0.0, "company_owes": 0.0, "net_to_company": 0.0}
+    for r in rows:
+        totals["revenue"] += r["total_revenue"]; totals["profit"] += r["total_profit"]
+        totals["give_company"] += r["give_company"]; totals["company_owes"] += r["company_owes"]
+        totals["net_to_company"] += r["net_to_company"]
+    totals = {k: round(v, 2) for k, v in totals.items()}
+    for x in det_sales:
+        x["at"] = parse_ts(x["at"]).strftime("%Y-%m-%d %H:%M")
+    for x in det_orders:
+        x["at"] = parse_ts(x["at"]).strftime("%Y-%m-%d %H:%M")
+    return {"period": {"start": d1.isoformat(), "end": d2.isoformat()}, "resellers": rows, "totals": totals,
+            "sales": det_sales[:300] if only else [], "orders": det_orders[:300] if only else []}
 
 
 # ===============================================================
@@ -804,13 +1346,13 @@ def load_report_data(d1, d2):
     s, e = first.isoformat(), after.isoformat()
 
     sales = fetch_all(lambda: db().table("sales").select(
-        "id,employee_id,total,payment_method,note,status,void_reason,voided_at,created_at,"
+        "id,employee_id,total,list_total,promo_discount,payment_method,note,status,void_reason,voided_at,created_at,"
         "employee:users!sales_employee_id_fkey(name),"
-        "sale_items(product_id,quantity,price,product:products(name,category))"
+        "sale_items(product_id,quantity,price,discount,product:products(name,category))"
     ).gte("created_at", s).lt("created_at", e).order("id"))
 
     orders = fetch_all(lambda: db().table("orders").select(
-        "id,user_id,total,status,created_at,user:users(name,email),"
+        "id,user_id,total,status,created_at,user:users!orders_user_id_fkey(name,email),"
         "order_items(product_id,quantity,price,product:products(name,category))"
     ).gte("created_at", s).lt("created_at", e).order("id"))
 
@@ -885,7 +1427,7 @@ def build_report(d1, d2, raw, generated_by):
                 "category": prod.get("category") or known.get("category") or "unisex",
                 "walkin_units": 0, "online_units": 0, "revenue": 0.0})
             a[kind + "_units"] += i["quantity"]
-            a["revenue"] = round(a["revenue"] + float(i["price"]) * i["quantity"], 2)
+            a["revenue"] = round(a["revenue"] + float(i["price"]) * i["quantity"] - float(i.get("discount") or 0), 2)
 
     for x in done:
         add("walkin", x["sale_items"])
@@ -1027,6 +1569,7 @@ def build_report(d1, d2, raw, generated_by):
             "online_total": online_total, "online_count": len(confirmed), "online_items": online_items,
             "pending_count": len(pending), "pending_value": round(sum(float(o["total"]) for o in pending), 2),
             "cancelled_count": len(cancelled),
+            "promo_discount": round(sum(float(x.get("promo_discount") or 0) for x in done), 2),
             "voided_count": len(voided), "voided_total": round(sum(float(x["total"]) for x in voided), 2),
             "items_sold": walkin_items + online_items, "new_customers": raw["new_customers"],
             "perfumes": len(raw["products"]), "stock_units": stock_units, "stock_value": stock_value,
@@ -1133,6 +1676,7 @@ def make_xlsx(r):
         {"m": "Online orders (counted)", "v": k["online_count"], "n": "Paid, shipped or delivered"},
         {"m": "Online orders pending", "v": k["pending_count"], "n": "Worth " + format(k["pending_value"], ",.2f") + " - not counted as revenue yet"},
         {"m": "Online orders cancelled", "v": k["cancelled_count"], "n": "Stock was put back"},
+        {"m": "Promo discounts given (walk-in)", "v": k["promo_discount"], "n": "Already taken off the revenue above"},
         {"m": "Walk-in sales voided", "v": k["voided_count"], "n": "Worth " + format(k["voided_total"], ",.2f") + " - not counted"},
         {"m": "New customer accounts", "v": k["new_customers"], "n": "Registered in this period"},
         {"m": "Perfumes in the shop", "v": k["perfumes"], "n": "Right now"},
@@ -1142,7 +1686,7 @@ def make_xlsx(r):
         {"m": "Sold out perfumes", "v": k["out_count"], "n": "Right now"},
         {"m": "Perfumes with no sales", "v": k["never_sold_count"], "n": "In this period"},
     ]
-    money_rows = {"TOTAL REVENUE", "Walk-in revenue", "Online revenue", "Average walk-in sale", "Stock value"}
+    money_rows = {"TOTAL REVENUE", "Walk-in revenue", "Online revenue", "Average walk-in sale", "Stock value", "Promo discounts given (walk-in)"}
     for c, h in enumerate(("Measure", "Value", "Note"), 1):
         x = ws.cell(row=row, column=c, value=h)
         x.font = Font(bold=True, color="FFFFFF")

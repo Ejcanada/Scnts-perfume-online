@@ -501,3 +501,5 @@ tbody tr:hover { background: rgba(227, 191, 122, .05); }
 @media (max-width: 1060px) and (min-width: 801px) {
   .site-header.staff-nav .nav-links a { padding: 8px 8px; font-size: .74rem; letter-spacing: .03em; }
 }
+.shop-banner { background: rgba(212,175,90,.12); border: 1px solid var(--gold); border-radius: 12px; padding: 10px 16px; margin-bottom: 14px; }
+.shop-banner a { color: var(--gold); text-decoration: underline; }

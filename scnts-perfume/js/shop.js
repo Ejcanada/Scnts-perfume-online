@@ -63,7 +63,7 @@ async function loadShop() {
   if (q) params.push("q=" + encodeURIComponent(q));
   if (cat) params.push("category=" + encodeURIComponent(cat));
   try {
-    var data = await api("/products" + (params.length ? "?" + params.join("&") : ""));
+    var data = await api(shopPath("/products" + (params.length ? "?" + params.join("&") : "")));
     drawProducts(data.products, "grid", "No perfumes found.");
   } catch (err) {
     document.getElementById("grid").innerHTML = '<p class="empty">' + esc(err.message) + "</p>";

@@ -16,6 +16,7 @@
 <body>
   <header id="site-header"></header>
   <main class="container">
+    <div id="shop-banner"></div>
     <section class="hero slider" id="hero-slider" aria-roledescription="carousel">
       <div class="slides">
         <article class="slide s1 active">
@@ -121,7 +122,7 @@
       setupGridClicks("grid");
       await loadFavIds();
       try {
-        var data = await api("/products");
+        var data = await api(shopPath("/products"));
         drawProducts(data.products.slice(0, 4), "grid", "No perfumes yet.");
       } catch (err) {
         document.getElementById("grid").innerHTML = '<p class="empty">' + esc(err.message) + "</p>";

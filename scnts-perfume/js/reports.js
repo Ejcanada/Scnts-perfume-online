@@ -59,6 +59,7 @@ function draw(r) {
     stat(k.items_sold, "Perfumes sold") +
     stat(money(k.average_sale), "Average walk-in sale") +
     stat(k.pending_count, "Online orders pending", k.pending_count ? "attn" : "") +
+    stat(money(k.promo_discount), "Promo discounts given") +
     stat(k.voided_count, "Voided walk-in sales", k.voided_count ? "attn" : "") +
     stat(k.new_customers, "New customer accounts") +
     stat(money(k.stock_value), "Stock value now") +

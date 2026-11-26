@@ -30,6 +30,42 @@ function hideMsg(id) {
   if (el) el.className = "msg";
 }
 
+// ---------- reseller shop link (shop.html?r=name) ----------
+function resellerSlug() {
+  try { return localStorage.getItem("scnts_reseller") || ""; } catch (e) { return ""; }
+}
+
+(function rememberReseller() {
+  var r = new URLSearchParams(location.search).get("r");
+  if (r === null) return;
+  r = r.trim().toLowerCase();
+  if (r === resellerSlug()) return;
+  try {
+    if (r) localStorage.setItem("scnts_reseller", r); else localStorage.removeItem("scnts_reseller");
+    localStorage.removeItem("scnts_cart");        // prices are different in another shop
+  } catch (e) {}
+})();
+
+// add ?reseller=... so the prices are the reseller's prices
+function shopPath(path) {
+  var r = resellerSlug();
+  return r ? path + (path.indexOf("?") === -1 ? "?" : "&") + "reseller=" + encodeURIComponent(r) : path;
+}
+
+async function showShopBanner() {
+  var box = document.getElementById("shop-banner");
+  var r = resellerSlug();
+  if (!box || !r) return;
+  try {
+    var info = await api("/reseller/shop-info/" + encodeURIComponent(r));
+    box.innerHTML = '<div class="shop-banner">You are shopping at <strong>' + esc(info.name) + "'s shop</strong> · " +
+      '<a href="shop.html?r=">Go to the main SCNTS shop</a></div>';
+  } catch (e) {
+    try { localStorage.removeItem("scnts_reseller"); } catch (e2) {}     // the link does not work anymore
+  }
+}
+document.addEventListener("DOMContentLoaded", showShopBanner);
+
 // ---------- cart (saved in the browser) ----------
 function getCart() {
   try { return JSON.parse(localStorage.getItem("scnts_cart")) || []; } catch (e) { return []; }
@@ -101,7 +137,7 @@ function buildLayout() {
   var links = [];
   if (isStaff) {
     // Staff menu: only work pages. No shop, cart, favorites, my orders, about or contact.
-    links.push(["pos.html", "POS"], ["inventory.html", "Inventory"]);
+    links.push(["pos.html", "POS"], ["promos.html", "Promos"], ["myshop.html", "My Shop"], ["earnings.html", "Earnings"], ["inventory.html", "Inventory"]);
     if (role === "admin") {
       links.push(["orders.html", "Orders"], ["sales.html", "Sales"], ["reports.html", "Reports"], ["staff.html", "Staff"], ["admin.html", "Products"]);
     }
@@ -189,3 +225,14 @@ function dateTimeText(iso) {
 }
 
 document.addEventListener("DOMContentLoaded", buildLayout);
+
+// plain words for a promo, used on the Promos page and in the POS
+function promoText(p) {
+  var who = p.scope === "product" ? (p.product ? p.product.name : "one perfume") :
+            p.scope === "category" ? "any perfume " + categoryLabel(p.category).toLowerCase() : "any perfume";
+  var t = p.promo_type;
+  if (t === "bundle") return p.buy_qty + " for " + money(p.value) + " (" + who + ")";
+  if (t === "buy_get") return "Buy " + p.buy_qty + ", get " + p.get_qty + " free (" + who + ")";
+  if (t === "percent") return Number(p.value) + "% off" + (p.min_qty > 1 ? " when you buy " + p.min_qty + "+" : "") + " (" + who + ")";
+  return money(p.value) + " off each" + (p.min_qty > 1 ? " when you buy " + p.min_qty + "+" : "") + " (" + who + ")";
+}

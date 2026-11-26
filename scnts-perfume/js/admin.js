@@ -2,6 +2,7 @@
 
 var editId = null;
 var adminProducts = {};
+var companyPrices = {};
 
 function formValue(id) { return document.getElementById(id).value.trim(); }
 
@@ -15,11 +16,12 @@ function resetForm() {
 
 async function loadAdminProducts() {
   var data = await api("/products");
+  try { companyPrices = (await api("/products/company-prices")).prices; } catch (e) { companyPrices = {}; }
   adminProducts = {};
   data.products.forEach(function (p) { adminProducts[p.id] = p; });
   document.getElementById("product-rows").innerHTML = data.products.map(function (p) {
     return "<tr><td>" + p.id + "</td><td>" + esc(p.name) + "</td><td>" + esc(p.brand) + "</td><td>" + categoryLabel(p.category) +
-      "</td><td>" + money(p.price) + "</td><td>" + p.stock + "</td><td>" +
+      "</td><td>" + money(p.price) + "</td><td>" + money(companyPrices[p.id] === undefined ? 250 : companyPrices[p.id]) + "</td><td>" + p.stock + "</td><td>" +
       '<button class="btn btn-outline btn-small" data-act="edit" data-id="' + p.id + '">Edit</button> ' +
       '<button class="btn btn-danger btn-small" data-act="delete" data-id="' + p.id + '">Delete</button></td></tr>';
   }).join("");
@@ -52,6 +54,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       size_ml: Number(formValue("f-size")),
       category: formValue("f-category"),
       stock: Number(formValue("f-stock") || 0),
+      company_price: Number(formValue("f-company") === "" ? 250 : formValue("f-company")),
       image_url: formValue("f-image") || null
     };
     try {
@@ -85,6 +88,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       document.getElementById("f-size").value = p.size_ml;
       document.getElementById("f-category").value = p.category;
       document.getElementById("f-stock").value = p.stock;
+      document.getElementById("f-company").value = companyPrices[id] === undefined ? 250 : companyPrices[id];
       document.getElementById("f-image").value = p.image_url || "";
       document.getElementById("form-title").textContent = "Edit perfume #" + id;
       document.getElementById("save-btn").textContent = "Save changes";

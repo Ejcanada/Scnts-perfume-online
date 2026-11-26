@@ -54,6 +54,7 @@ function drawOrders() {
   }
   box.innerHTML = list.map(function (o) {
     var who = o.user ? "<strong>" + esc(o.user.name) + "</strong><br><small>" + esc(o.user.email) + "</small>" : "User " + o.user_id;
+    if (o.reseller) who += '<br><span class="badge info">via ' + esc(o.reseller.name) + "'s shop</span>";
     var qty = 0;
     var items = o.order_items.map(function (i) {
       qty += i.quantity;

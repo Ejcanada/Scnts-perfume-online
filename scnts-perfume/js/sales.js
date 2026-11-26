@@ -40,6 +40,16 @@ function drawSummary(s) {
   }).join("") || '<tr><td colspan="4" class="empty">No sales on this day.</td></tr>';
 }
 
+function discountNote(s) {
+  var bits = (s.sale_promos || []).map(function (p) { return esc(p.promo_name) + " −" + money(p.discount); });
+  s.sale_items.forEach(function (i) {
+    if (i.list_price !== null && Number(i.list_price) !== Number(i.price)) {
+      bits.push(esc(i.product ? i.product.name : "Perfume") + " sold at " + money(i.price) + " (list " + money(i.list_price) + ")");
+    }
+  });
+  return bits.length ? "<br><small>" + bits.join(" · ") + "</small>" : "";
+}
+
 function drawSales(sales) {
   document.getElementById("sale-rows").innerHTML = sales.map(function (s) {
     var items = s.sale_items.map(function (i) { return i.quantity + " × " + esc(i.product ? i.product.name : "Perfume"); }).join(", ");
@@ -48,7 +58,7 @@ function drawSales(sales) {
       ? '<span class="keep" title="' + esc(s.void_reason || "") + '">' + esc(s.void_reason || "") + "</span>"
       : '<button class="btn btn-danger btn-small" data-void="' + s.id + '">Void</button>';
     return '<tr class="' + (voided ? "row-void" : "") + '"><td>#' + s.id + "</td><td>" + timeText(s.created_at) + "</td><td>" +
-      esc(s.employee ? s.employee.name : "") + "</td><td>" + items + (s.note ? "<br><small>" + esc(s.note) + "</small>" : "") +
+      esc(s.employee ? s.employee.name : "") + "</td><td>" + items + (s.note ? "<br><small>" + esc(s.note) + "</small>" : "") + discountNote(s) +
       "</td><td>" + esc(cap(s.payment_method)) + "</td><td>" + money(s.total) +
       (voided ? ' <span class="badge out keep">VOIDED</span>' : "") + '</td><td class="keep">' + action + "</td></tr>";
   }).join("") || '<tr><td colspan="7" class="empty">No sales on this day.</td></tr>';

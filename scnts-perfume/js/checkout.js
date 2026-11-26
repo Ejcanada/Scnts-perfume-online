@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", function () {
     btn.disabled = true;
     try {
       var items = getCart().map(function (i) { return { product_id: i.id, quantity: i.qty }; });
-      var order = await api("/orders", "POST", { items: items });
+      var order = await api("/orders", "POST", { items: items, reseller: resellerSlug() || null });
       saveCart([]);
       document.getElementById("checkout-box").innerHTML =
         '<h2>Thank you!</h2><p class="sub">Your order #' + esc(order.id) + " was placed. Total: " + money(order.total) +

@@ -28,7 +28,7 @@
       var box = document.getElementById("detail");
       if (!id) { box.innerHTML = '<p class="empty">No perfume selected.</p>'; return; }
       try {
-        var p = await api("/products/" + encodeURIComponent(id));
+        var p = await api(shopPath("/products/" + encodeURIComponent(id)));
         document.title = p.name + " - SCNTS Perfume";
         box.innerHTML = '<div class="detail">' + productImage(p) + "<div>" +
           '<span class="brand">' + esc(p.brand) + " · " + categoryLabel(p.category) + "</span>" +
