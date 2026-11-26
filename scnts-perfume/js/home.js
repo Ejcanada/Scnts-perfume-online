@@ -3,8 +3,7 @@
   var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   var COPY = {
     men: { h: "Bold & woody", p: "Deep, warm and confident.", k: "For him", link: "shop.html?category=men", cta: "Shop for him" },
-    women: { h: "Floral & radiant", p: "Soft, glowing and unforgettable.", k: "For her", link: "shop.html?category=women", cta: "Shop for her" },
-    unisex: { h: "Made to share", p: "Fragrances for whoever wears them.", k: "Unisex", link: "shop.html?category=unisex", cta: "Shop unisex" }
+    women: { h: "Floral & radiant", p: "Soft, glowing and unforgettable.", k: "For her", link: "shop.html?category=women", cta: "Shop for her" }
   };
 
   function countUp(el) {
@@ -27,7 +26,7 @@
 
   function story(list) {
     var sec = document.getElementById("story"); if (!sec) return;
-    var picks = ["men", "women", "unisex"].map(function (c) { return { c: c, p: list.filter(function (p) { return p.category === c; })[0] }; }).filter(function (x) { return x.p; });
+    var picks = ["men", "women"].map(function (c) { return { c: c, p: list.filter(function (p) { return p.category === c; })[0] }; }).filter(function (x) { return x.p; });
     if (!picks.length) return;
     var stack = document.getElementById("story-stack"), steps = document.getElementById("story-steps"), cnt = document.getElementById("story-count");
     stack.innerHTML = picks.map(function (x, i) { return '<img class="' + (i ? "" : "on") + '" src="' + esc(x.p.image_url || "") + '" alt="">'; }).join("");
