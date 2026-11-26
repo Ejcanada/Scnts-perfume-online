@@ -145,12 +145,12 @@
     paint(state.list[state.i], true);
   }
 
-  function open(id, from, ev) {
+  function open(id, from, ev, custom) {
     if (!root) build();
     cv = root.querySelector(".jy-fx"); cx = cv.getContext("2d");
     var cards = Array.prototype.slice.call(document.querySelectorAll("#grid .card [data-id]")).map(function (b) { return Number(b.dataset.id); });
     cards = cards.filter(function (v, k) { return cards.indexOf(v) === k; });
-    state.list = cards.map(get).filter(Boolean);
+    state.list = custom && custom.length ? custom : cards.map(get).filter(Boolean);
     state.i = Math.max(0, state.list.findIndex(function (p) { return p.id === id; }));
     if (!state.list.length) return;
     state.opener = from; state.open = true; state.mx = state.my = 0;
