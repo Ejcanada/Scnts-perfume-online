@@ -61,6 +61,9 @@
     sec.querySelector("#wall-a .wall-track").innerHTML = a + a;
     sec.querySelector("#wall-b .wall-track").innerHTML = r + r;
     sec.hidden = false;
+    // fixed speed (pixels per second) so a long catalogue does not spin too fast. Lower = slower.
+    var WALL_SPEED = 45;
+    sec.querySelectorAll(".wall-track").forEach(function (t, i) { t.style.animationDuration = Math.max(30, Math.round((t.scrollWidth / 2) / (WALL_SPEED + i * 8))) + "s"; });
     sec.addEventListener("click", function (e) {
       var b = e.target.closest(".wall-item"); if (!b) return;
       Journey.open(Number(b.dataset.id), b, e, list);
