@@ -678,3 +678,14 @@ html.menu-open, html.menu-open body { overflow: hidden; }
 .about-hero .about-logo{float:none!important;position:static!important;margin:0 auto 18px!important}
 .about-hero .about-lead{text-align:center}
 @media(max-width:560px){.announce{font-size:.7rem;letter-spacing:.02em}.announce *{white-space:nowrap}}
+
+/* ===== GLOBAL POLISH ===== */
+.page-title{font-family:"Cormorant Garamond",Georgia,serif;font-weight:500;font-size:clamp(2.6rem,6vw,4.4rem);letter-spacing:-.01em;line-height:1.05}
+.sub{font-family:"Cormorant Garamond",Georgia,serif;font-style:italic;font-size:1.3rem;color:#dcc0ca}
+.empty{background:radial-gradient(circle at 50% 0,rgba(232,57,125,.18),transparent 70%);border:1px dashed rgba(232,184,75,.3);border-radius:8px;padding:70px 20px!important}
+.empty a{color:#ffd98a;border-bottom:1px solid rgba(255,217,138,.5);text-decoration:none}
+.btn{transition:transform .35s cubic-bezier(.2,.8,.2,1),box-shadow .35s,filter .35s}
+.btn:hover{transform:translateY(-3px)}
+.btn:active{transform:translateY(0) scale(.97)}
+::selection{background:#e8b84b;color:#2a0a17}
+html{scroll-behavior:smooth}
