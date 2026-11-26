@@ -87,8 +87,11 @@ function cartCount() {
 }
 
 function updateCartCount() {
-  var el = document.getElementById("cart-count");
-  if (el) el.textContent = cartCount();
+  var n = cartCount();
+  Array.prototype.forEach.call(document.querySelectorAll("[data-cart-count]"), function (el) {
+    el.textContent = n;
+    el.style.display = n > 0 ? "" : "none";
+  });
 }
 
 function addToCart(p, qty) {
@@ -133,6 +136,18 @@ function productCard(p, isFav) {
 }
 
 // ---------- header and footer ----------
+var SHOP_EMAIL = "Perfumescnts@gmail.com";
+var ANNOUNCE = [
+  "Elevate your confidence with our exquisite fragrances",
+  "Eau de perfume, for him and for her",
+  "Questions about a scent? Call 0956 896 3077"
+];
+var ICON_BAG = '<svg class="ico-bag" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 8.5h13l-1 11.5h-11z"/><path d="M9 8.5V7a3 3 0 0 1 6 0v1.5"/></svg>';
+
+function footCol(title, rows) {
+  return '<div class="foot-col"><h4>' + title + "</h4>" + rows.map(function (r) { return '<a href="' + r[0] + '">' + r[1] + "</a>"; }).join("") + "</div>";
+}
+
 var CUSTOMER_PAGES = ["index.html", "shop.html", "product.html", "about.html", "contact.html", "cart.html", "checkout.html", "favorites.html", "my-orders.html", ""];
 
 function buildLayout() {
@@ -164,29 +179,102 @@ function buildLayout() {
     return '<a href="' + l[0] + '"' + (page === l[0] ? ' class="active"' : "") + ">" + l[1] + "</a>";
   }).join("");
 
+  var showCart = loggedIn && !isStaff;
+  var firstName = user ? esc(user.name.split(" ")[0]) : "";
+  var accountLink = loggedIn
+    ? '<a href="#" id="logout-link">Logout' + (user ? " (" + firstName + ")" : "") + "</a>"
+    : '<a href="login.html">Login / Sign up</a>';
+
+  // announcement strip above the header (customer pages only)
   var header = document.getElementById("site-header");
+  if (header && !isStaff && !document.getElementById("announce")) {
+    var bar = document.createElement("div");
+    bar.className = "announce";
+    bar.id = "announce";
+    bar.innerHTML = ANNOUNCE.map(function (t) { return "<span>" + t + "</span>"; }).join("");
+    header.parentNode.insertBefore(bar, header);
+  }
+
   if (header) {
     header.className = "site-header" + (isStaff ? " staff-nav" : "");
     header.innerHTML = '<div class="container nav">' +
-      '<a class="logo" href="' + (isStaff ? "pos.html" : "index.html") + '">SCNTS</a>' +
-      '<button class="menu-btn" id="menu-btn" aria-label="Menu">☰</button>' +
-      '<div class="nav-links" id="nav-links">' + nav +
-      (loggedIn
-        ? (isStaff ? "" : '<a class="cart-link" href="cart.html">Cart<span id="cart-count">0</span></a>') +
-          '<a href="#" id="logout-link">Logout' + (user ? " (" + esc(user.name.split(" ")[0]) + ")" : "") + "</a>"
-        : '<a href="login.html">Login / Sign up</a>') +
+      '<a class="logo" href="' + (isStaff ? "pos.html" : "index.html") + '" aria-label="SCNTS home">SCNTS</a>' +
+      '<div class="nav-links" id="nav-links">' + nav + accountLink + "</div>" +
+      '<div class="nav-tools">' +
+        (showCart ? '<a class="cart-link" href="cart.html" aria-label="Cart">' + ICON_BAG + '<span id="cart-count" data-cart-count>0</span></a>' : "") +
+        '<button class="menu-btn" id="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer"><i></i><i></i></button>' +
       "</div></div>";
-    document.getElementById("menu-btn").onclick = function () {
-      document.getElementById("nav-links").classList.toggle("open");
-    };
-    var lo = document.getElementById("logout-link");
+    var lo = header.querySelector("#logout-link");
     if (lo) lo.onclick = function (e) { e.preventDefault(); logout(); };
+  }
+
+  // full-screen menu for phones and tablets
+  if (header && !document.getElementById("drawer")) {
+    var d = document.createElement("div");
+    d.className = "drawer";
+    d.id = "drawer";
+    d.setAttribute("aria-hidden", "true");
+    d.innerHTML =
+      '<div class="d-top"><button class="d-close" id="drawer-close" type="button"><span class="x" aria-hidden="true"></span>Close</button>' +
+      '<a class="d-mark" href="' + (isStaff ? "pos.html" : "index.html") + '" aria-hidden="true" tabindex="-1"></a></div>' +
+      '<nav class="d-list" aria-label="Main menu">' +
+      links.map(function (l, i) {
+        return '<a class="d-link' + (page === l[0] ? " active" : "") + '" style="--i:' + i + '" href="' + l[0] + '"><span>' + l[1] + '</span><i class="chev" aria-hidden="true"></i></a>';
+      }).join("") +
+      (showCart ? '<a class="d-link" style="--i:' + links.length + '" href="cart.html"><span>Cart <b data-cart-count>0</b></span><i class="chev" aria-hidden="true"></i></a>' : "") +
+      "</nav>" +
+      '<div class="d-bottom">' +
+        '<div class="d-account">' + (loggedIn
+          ? '<a href="#" id="drawer-logout">Logout' + (user ? " (" + firstName + ")" : "") + "</a>"
+          : '<a href="login.html">Log in</a><a href="login.html">Create an account</a>') + "</div>" +
+        (isStaff ? "" :
+          '<div class="d-tabs"><a href="shop.html?category=men">For him</a><a href="shop.html?category=women">For her</a><a href="shop.html?category=unisex">Unisex</a></div>' +
+          '<div class="d-contact"><a href="mailto:' + SHOP_EMAIL + '">' + SHOP_EMAIL + '</a><a href="tel:+639568963077">0956 896 3077</a></div>') +
+      "</div>";
+    document.body.appendChild(d);
+
+    var btn = document.getElementById("menu-btn");
+    function setMenu(open) {
+      d.classList.toggle("open", open);
+      d.setAttribute("aria-hidden", open ? "false" : "true");
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      document.documentElement.classList.toggle("menu-open", open);
+      if (open) document.getElementById("drawer-close").focus(); else if (document.activeElement && d.contains(document.activeElement)) btn.focus();
+    }
+    btn.onclick = function () { setMenu(true); };
+    document.getElementById("drawer-close").onclick = function () { setMenu(false); };
+    d.addEventListener("click", function (e) { if (e.target.closest("a.d-link, .d-tabs a, .d-contact a, .d-account a:not(#drawer-logout)")) setMenu(false); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && d.classList.contains("open")) setMenu(false); });
+    window.addEventListener("resize", function () { if (window.innerWidth > 1080 && d.classList.contains("open")) setMenu(false); });
+    var dl = document.getElementById("drawer-logout");
+    if (dl) dl.onclick = function (e) { e.preventDefault(); logout(); };
   }
 
   var footer = document.getElementById("site-footer");
   if (footer) {
-    footer.className = "site-footer";
-    footer.innerHTML = '<div class="container">© ' + new Date().getFullYear() + " SCNTS Perfume. All rights reserved.</div>";
+    var year = new Date().getFullYear();
+    if (isStaff) {
+      footer.className = "site-footer";
+      footer.innerHTML = '<div class="container">© ' + year + " SCNTS Perfume. All rights reserved.</div>";
+    } else {
+      footer.className = "site-footer rich";
+      footer.innerHTML =
+        '<div class="container foot">' +
+          '<div class="foot-cols">' +
+            footCol("Customer care", [["contact.html", "Contact us"], ["my-orders.html", "My orders"], ["favorites.html", "Favorites"], [loggedIn ? "#" : "login.html", loggedIn ? "Logout" : "Log in"]]) +
+            footCol("The house", [["index.html", "Home"], ["about.html", "Our story"], ["contact.html", "Contact"]]) +
+            footCol("Shop", [["shop.html", "All fragrances"], ["shop.html?category=men", "For him"], ["shop.html?category=women", "For her"], ["shop.html?category=unisex", "Unisex"]]) +
+          "</div>" +
+          '<div class="foot-cta"><p class="foot-script">Stay close to the house</p>' +
+            "<p>Questions about a scent or an order? Reach us here.</p>" +
+            '<a class="btn" href="mailto:' + SHOP_EMAIL + '">Email us</a>' +
+            '<div class="foot-phones"><a href="tel:+639568963077">0956 896 3077</a><a href="tel:+639331344997">0933 134 4997</a></div></div>' +
+        "</div>" +
+        '<div class="container foot-base"><span class="foot-brand"><i class="foot-emblem" aria-hidden="true"></i><span class="wordmark">Scnts</span></span>' +
+        "<span>© " + year + " SCNTS Perfume. All rights reserved.</span></div>";
+      var fl = footer.querySelector('a[href="#"]');
+      if (fl) fl.onclick = function (e) { e.preventDefault(); logout(); };
+    }
   }
   updateCartCount();
 }
