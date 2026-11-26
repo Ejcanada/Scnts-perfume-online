@@ -58,8 +58,7 @@ async function showShopBanner() {
   if (!box || !r) return;
   try {
     var info = await api("/reseller/shop-info/" + encodeURIComponent(r));
-    box.innerHTML = '<div class="shop-banner">You are shopping at <strong>' + esc(info.name) + "'s shop</strong> · " +
-      '<a href="shop.html?r=">Go to the main SCNTS shop</a></div>';
+    box.innerHTML = '<div class="shop-banner">You are shopping at <strong>' + esc(info.name) + "'s shop</strong></div>";
   } catch (e) {
     try { localStorage.removeItem("scnts_reseller"); } catch (e2) {}     // the link does not work anymore
   }
