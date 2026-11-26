@@ -123,6 +123,7 @@ function productImage(p) {
 function productCard(p, isFav) {
   return '<div class="card">' +
     '<div style="position:relative">' + productImage(p) +
+    (p.stock <= 0 ? '<span class="badge soldout">Sold out</span>' : (p.stock <= 5 ? '<span class="badge">Only ' + p.stock + ' left</span>' : "")) +
     '<button class="heart ' + (isFav ? "on" : "") + '" data-act="fav" data-id="' + p.id + '" title="Favorite">' + (isFav ? "♥" : "♡") + "</button></div>" +
     '<div class="card-body">' +
     '<span class="brand">' + esc(p.brand) + " · " + categoryLabel(p.category) + "</span>" +
