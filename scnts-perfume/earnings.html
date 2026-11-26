@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Contact - SCNTS Perfume</title>
+  <title>Earnings - SCNTS Perfume</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Great+Vibes&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="images/favicon.png">
   <meta name="theme-color" content="#a3134f">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/staff.css">
   <link rel="stylesheet" href="css/responsive.css">
   <script src="js/fx.js" defer></script>
   <script src="js/api.js"></script>
@@ -16,17 +17,33 @@
 <body>
   <header id="site-header"></header>
   <main class="container">
-    <section class="about-hero">
-      <h1 class="page-title">Contact us</h1>
-      <p class="about-lead">Questions about a scent? <em>Talk to us.</em></p>
-    </section>
-    <div class="about-grid contact-cards">
-      <a class="about-card" href="mailto:Perfumescnts@gmail.com"><h3>Email</h3><p>Perfumescnts@gmail.com</p></a>
-      <a class="about-card" href="tel:+639568963077"><h3>Call or text</h3><p>0956 896 3077</p></a>
-      <a class="about-card" href="tel:+639331344997"><h3>Call or text</h3><p>0933 134 4997</p></a>
+    <div id="denied" style="display:none"><div class="box"><p>Staff only. Your account does not have access to this page.</p></div></div>
+    <div id="staff-content" style="display:none">
+      <h1 class="page-title" id="e-title">My Earnings</h1>
+      <p class="sub" id="e-sub">What you sold, what goes to the company (fixed company price), and what you earned on top.</p>
+      <div id="msg" class="msg"></div>
+      <div class="box no-print">
+        <div class="chips" id="presets">
+          <button class="chip" data-p="today">Today</button>
+          <button class="chip" data-p="week">Last 7 days</button>
+          <button class="chip active" data-p="month">This month</button>
+          <button class="chip" data-p="lastmonth">Last month</button>
+          <button class="chip" data-p="year">This year</button>
+        </div>
+        <div class="date-bar" style="margin-bottom:0">
+          <label for="from" style="margin:0">From</label><input type="date" id="from">
+          <label for="to" style="margin:0">To</label><input type="date" id="to">
+          <span id="who-wrap" style="display:none"><label for="who" style="margin:0">Reseller</label><select id="who"><option value="">All resellers</option></select></span>
+          <button class="btn" id="show-btn">Show</button>
+          <button class="btn btn-outline" id="print-btn">🖨 Print</button>
+        </div>
+      </div>
+      <div id="report"><p class="empty">Loading...</p></div>
     </div>
   </main>
   <footer id="site-footer"></footer>
+
   <script src="js/main.js"></script>
+  <script src="js/earnings.js"></script>
 </body>
 </html>
