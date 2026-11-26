@@ -31,17 +31,24 @@ function hideMsg(id) {
 }
 
 // ---------- reseller shop link (shop.html?r=name) ----------
+// The reseller shop only lasts while the customer keeps browsing from that link (in this tab).
+// Opening the main SCNTS link directly (typed, bookmarked, or from another site) is always the main shop.
 function resellerSlug() {
-  try { return localStorage.getItem("scnts_reseller") || ""; } catch (e) { return ""; }
+  try { return sessionStorage.getItem("scnts_reseller") || ""; } catch (e) { return ""; }
 }
 
 (function rememberReseller() {
+  var old = resellerSlug();
+  var fromThisSite = false;
+  try { fromThisSite = !!document.referrer && new URL(document.referrer).origin === location.origin; } catch (e) {}
   var r = new URLSearchParams(location.search).get("r");
-  if (r === null) return;
-  r = r.trim().toLowerCase();
-  if (r === resellerSlug()) return;
+  var next;
+  if (r !== null) next = r.trim().toLowerCase();       // ?r=name opens that shop, ?r= opens the main shop
+  else next = fromThisSite ? old : "";                  // no link given: keep it only while moving around the site
+  try { localStorage.removeItem("scnts_reseller"); } catch (e) {}   // old versions saved it here for good
+  if (next === old) return;
   try {
-    if (r) localStorage.setItem("scnts_reseller", r); else localStorage.removeItem("scnts_reseller");
+    if (next) sessionStorage.setItem("scnts_reseller", next); else sessionStorage.removeItem("scnts_reseller");
     localStorage.removeItem("scnts_cart");        // prices are different in another shop
   } catch (e) {}
 })();
@@ -60,7 +67,7 @@ async function showShopBanner() {
     var info = await api("/reseller/shop-info/" + encodeURIComponent(r));
     box.innerHTML = '<div class="shop-banner">You are shopping at <strong>' + esc(info.name) + "'s shop</strong></div>";
   } catch (e) {
-    try { localStorage.removeItem("scnts_reseller"); } catch (e2) {}     // the link does not work anymore
+    try { sessionStorage.removeItem("scnts_reseller"); } catch (e2) {}     // the link does not work anymore
   }
 }
 document.addEventListener("DOMContentLoaded", showShopBanner);
