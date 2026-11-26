@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/index.py", "use": "@vercel/python" },
+    { "src": "*.html", "use": "@vercel/static" },
+    { "src": "css/**", "use": "@vercel/static" },
+    { "src": "js/**", "use": "@vercel/static" },
+    { "src": "images/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    {
+      "src": "/(products|auth|orders|favorites|pos|inventory|staff|reports|promos|reseller|health|docs|redoc|openapi\\.json)(/.*)?",
+      "dest": "/api/index.py"
+    },
+    { "handle": "filesystem" },
+    { "src": "/", "dest": "/index.html" }
+  ]
+}

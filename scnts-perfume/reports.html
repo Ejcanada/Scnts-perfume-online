@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reports - SCNTS Perfume</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <meta name="theme-color" content="#a3134f">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/staff.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <script src="js/fx.js" defer></script>
+  <script src="js/api.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <div id="denied" style="display:none"><div class="box"><p>Admin only. Your account does not have access to this page.</p></div></div>
+    <div id="staff-content" style="display:none">
+      <h1 class="page-title">Reports</h1>
+      <p class="sub no-print">A summary of sales, orders and stock for the dates you choose. Download it as an Excel file or print it.</p>
+      <div id="msg" class="msg no-print"></div>
+
+      <div class="box no-print">
+        <div class="chips" id="presets">
+          <button class="chip" data-p="today">Today</button>
+          <button class="chip" data-p="yesterday">Yesterday</button>
+          <button class="chip" data-p="week">Last 7 days</button>
+          <button class="chip active" data-p="month">This month</button>
+          <button class="chip" data-p="lastmonth">Last month</button>
+          <button class="chip" data-p="year">This year</button>
+        </div>
+        <div class="date-bar" style="margin-bottom:0">
+          <label for="from" style="margin:0">From</label><input type="date" id="from">
+          <label for="to" style="margin:0">To</label><input type="date" id="to">
+          <button class="btn" id="show-btn">Show report</button>
+          <button class="btn btn-outline" id="excel-btn">⬇ Download Excel</button>
+          <button class="btn btn-outline" id="print-btn">🖨 Print / Save as PDF</button>
+        </div>
+      </div>
+
+      <div id="report"><p class="empty">Loading...</p></div>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+
+  <script src="js/main.js"></script>
+  <script src="js/reports.js"></script>
+</body>
+</html>
