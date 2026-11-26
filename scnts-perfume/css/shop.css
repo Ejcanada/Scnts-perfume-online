@@ -103,3 +103,11 @@ html.jy-lock .guide-fab{display:none}
 @media(prefers-reduced-motion:reduce){.shop-hero *,.shopgrid .card,.ticker-track,.guide-fab,.gd *{animation:none!important}}
 .gd{justify-content:flex-start;padding:96px 0 24px}
 .gd-dots{margin-top:auto}.gd-body{margin-bottom:auto}
+.gd-top{background:linear-gradient(#0b0309 55%,transparent);padding-bottom:30px}
+@media(max-width:700px){
+  .gd-res{grid-template-columns:repeat(3,1fr);gap:10px}
+  .gd-card b{font-size:1rem}.gd-card span,.gd-card small{font-size:.8rem}
+  .gd-q{margin-bottom:24px}.gd-k{font-size:1.5rem}
+}
+.shop-hero{overflow-x:clip}
+html,body{overflow-x:clip}
