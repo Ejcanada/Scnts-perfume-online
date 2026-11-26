@@ -38,17 +38,16 @@
   function results() {
     var T = tiers().filter(function (t) { return t.id === ans.budget; })[0];
     var fits = all.filter(function (p) {
-      var catOk = ans.who === "any" || p.category === ans.who || p.category === "unisex";
+      var catOk = ans.who === "any" || p.category === ans.who;
       return catOk && p.price >= T.min - 0.01 && p.price <= T.max + 0.01 && p.stock > 0;
     });
-    // exact category first, then unisex
     fits.sort(function (a, b) { return (b.category === ans.who) - (a.category === ans.who) || a.price - b.price; });
     var pick = fits.slice(0, 3), body = root.querySelector(".gd-body");
     if (!pick.length) {
       body.innerHTML = '<p class="gd-k">No exact match</p><h2 class="gd-q">Nothing in that range right now.</h2><button class="btn" id="gd-redo">Try again</button>';
       body.querySelector("#gd-redo").onclick = function () { ans = {}; step = 0; render(); }; return;
     }
-    var who = { men: "for him", women: "for her", unisex: "unisex", any: "for anyone" }[ans.who];
+    var who = { men: "for him", women: "for her", any: "for anyone" }[ans.who];
     body.innerHTML = '<p class="gd-k">Your matches · ' + who + ' · ' + T.label.toLowerCase() + '</p><h2 class="gd-q">We picked ' + (pick.length === 1 ? "this one" : "these " + pick.length) + " for you.</h2>" +
       '<div class="gd-res">' + pick.map(function (p, i) {
         return '<button class="gd-card" style="--i:' + i + '" data-id="' + p.id + '"><span class="gd-img"><img src="' + esc(p.image_url || "") + '" alt="' + esc(p.name) + '"></span><b>' + esc(p.name) + '</b><span>' + money(p.price) + '</span><small>' + categoryLabel(p.category) + '</small></button>';
@@ -65,7 +64,7 @@
   function render() {
     root.querySelectorAll(".gd-dots b").forEach(function (d, i) { d.classList.toggle("on", i <= step); });
     root.querySelector(".gd-back").style.visibility = step > 0 ? "visible" : "hidden";
-    if (step === 0) opts([{ id: "men", label: "For him" }, { id: "women", label: "For her" }, { id: "unisex", label: "Unisex" }, { id: "any", label: "Surprise me" }], "who", "Who is it for?", "Guide me");
+    if (step === 0) opts([{ id: "men", label: "For him" }, { id: "women", label: "For her" }, { id: "any", label: "Surprise me" }], "who", "Who is it for?", "Guide me");
     else if (step === 1) opts(tiers(), "budget", "What feels right for your budget?", "Almost there");
     else results();
   }
