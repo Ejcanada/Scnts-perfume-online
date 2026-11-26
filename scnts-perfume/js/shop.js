@@ -56,6 +56,9 @@ function setupGridClicks(gridId, afterFavChange) {
 }
 
 // ---------- shop page ----------
+// Ticker speed in pixels per second. Lower number = slower.
+var TICKER_SPEED = 45;
+
 async function loadShop() {
   var q = document.getElementById("search").value.trim();
   var cat = document.getElementById("category").value;
@@ -76,7 +79,7 @@ async function loadShop() {
     var n = document.getElementById("count"); if (n) n.textContent = list.length + (list.length === 1 ? " fragrance" : " fragrances");
     var h = document.getElementById("hero-count"); if (h && !q && !cat) h.textContent = list.length;
     var t = document.getElementById("ticker-track");
-    if (t && !q && !cat && list.length) { var row = list.map(function (p) { return "<span>" + esc(p.name) + "</span><em>\u2726</em>"; }).join(""); t.innerHTML = row + row + row + row; }
+    if (t && !q && !cat && list.length) { var row = list.map(function (p) { return "<span>" + esc(p.name) + "</span><em>\u2726</em>"; }).join(""); t.innerHTML = row + row; t.style.animationDuration = Math.max(20, Math.round((t.scrollWidth / 2) / TICKER_SPEED)) + "s"; }
   } catch (err) {
     grid.innerHTML = '<p class="empty">' + esc(err.message) + "</p>";
   }
