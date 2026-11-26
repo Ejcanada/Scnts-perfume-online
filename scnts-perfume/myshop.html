@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>My orders - SCNTS Perfume</title>
+  <title>My Shop - SCNTS Perfume</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Great+Vibes&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="images/favicon.png">
   <meta name="theme-color" content="#a3134f">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/staff.css">
   <link rel="stylesheet" href="css/responsive.css">
   <script src="js/fx.js" defer></script>
   <script src="js/api.js"></script>
@@ -16,38 +17,31 @@
 <body>
   <header id="site-header"></header>
   <main class="container">
-    <h1 class="page-title">My orders</h1>
-    <p class="sub">Only you can see these.</p>
-    <div id="orders"><p class="empty">Loading...</p></div>
+    <div id="denied" style="display:none"><div class="box"><p>Staff only. Your account does not have access to this page.</p></div></div>
+    <div id="staff-content" style="display:none">
+      <h1 class="page-title">My Shop</h1>
+      <p class="sub">Share your own shop link with your customers. They see <strong>your</strong> prices. The company price is fixed: you can only add on top of it.</p>
+      <div id="msg" class="msg"></div>
+      <div class="box">
+        <h2>My shop link</h2>
+        <div class="link-box"><input id="shop-link" readonly><button class="btn" id="copy-btn">Copy link</button><a class="btn btn-outline" id="open-link" target="_blank" rel="noopener">Open my shop</a></div>
+        <p class="sub" style="margin:10px 0 0">Orders from your link come to SCNTS tagged with your name, and they count in your Earnings.</p>
+      </div>
+      <div class="box" style="margin-top:24px">
+        <h2>My prices</h2>
+        <p class="sub">Type your selling price for each perfume. Empty = the normal shop price. Your markup is your price minus the company price.</p>
+        <div class="toolbar"><input id="search" type="search" placeholder="Search perfume..."></div>
+        <div class="table-wrap"><table class="price-table">
+          <thead><tr><th>Perfume</th><th>Normal price</th><th>Company price (fixed)</th><th>My price</th><th>My markup</th></tr></thead>
+          <tbody id="price-rows"></tbody>
+        </table></div>
+        <br><button class="btn" id="save-btn">Save my prices</button>
+      </div>
+    </div>
   </main>
   <footer id="site-footer"></footer>
 
   <script src="js/main.js"></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", async function () {
-      var box = document.getElementById("orders");
-      try {
-        var data = await api("/orders");
-        if (!data.orders.length) {
-          box.innerHTML = '<p class="empty">No orders yet. <a href="shop.html">Start shopping</a></p>';
-          return;
-        }
-        box.innerHTML = data.orders.map(function (o) {
-          var items = o.order_items.map(function (i) {
-            var name = i.product ? i.product.name : "Perfume " + i.product_id;
-            return "<tr><td>" + esc(name) + "</td><td>" + i.quantity + "</td><td>" + money(i.price) + "</td></tr>";
-          }).join("");
-          return '<div class="box"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
-            "<strong>Order #" + o.id + "</strong>" +
-            '<span class="status">' + esc(o.status) + "</span></div>" +
-            '<p class="sub">' + new Date(o.created_at).toLocaleString() + "</p>" +
-            '<div class="table-wrap"><table><tr><th>Perfume</th><th>Qty</th><th>Price</th></tr>' + items + "</table></div>" +
-            '<div class="total-line"><span>Total</span><strong class="price">' + money(o.total) + "</strong></div></div>";
-        }).join("");
-      } catch (err) {
-        box.innerHTML = '<p class="empty">' + esc(err.message) + "</p>";
-      }
-    });
-  </script>
+  <script src="js/myshop.js"></script>
 </body>
 </html>
