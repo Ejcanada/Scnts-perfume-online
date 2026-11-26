@@ -126,13 +126,18 @@ function productCard(p, isFav) {
 }
 
 // ---------- header and footer ----------
+var CUSTOMER_PAGES = ["index.html", "shop.html", "product.html", "about.html", "contact.html", "cart.html", "checkout.html", "favorites.html", "my-orders.html", ""];
+
 function buildLayout() {
   if (document.body.dataset.layout === "none") return;
   var user = getUser();
   var page = location.pathname.split("/").pop() || "index.html";
   var loggedIn = !!getToken();
   var role = user ? user.role : "";
-  var isStaff = loggedIn && (role === "employee" || role === "admin");
+  var staffAccount = loggedIn && (role === "employee" || role === "admin");
+  // On a reseller shop link the page looks like a normal customer shop, even when the reseller is logged in to preview it
+  var asCustomer = staffAccount && !!resellerSlug() && CUSTOMER_PAGES.indexOf(page) !== -1;
+  var isStaff = staffAccount && !asCustomer;
   var links = [];
   if (isStaff) {
     // Staff menu: only work pages. No shop, cart, favorites, my orders, about or contact.
@@ -145,6 +150,7 @@ function buildLayout() {
     links.push(["index.html", "Home"], ["shop.html", "Shop"]);
     if (loggedIn) links.push(["favorites.html", "Favorites"], ["my-orders.html", "My orders"]);
     links.push(["about.html", "About"], ["contact.html", "Contact"]);
+    if (asCustomer) links.push(["pos.html", "Back to staff"]);
   }
 
   var nav = links.map(function (l) {
@@ -183,7 +189,7 @@ function buildLayout() {
   var u = getUser();
   var page = location.pathname.split("/").pop();
   var customerOnly = ["cart.html", "checkout.html", "favorites.html", "my-orders.html"];
-  if (u && (u.role === "employee" || u.role === "admin") && customerOnly.indexOf(page) !== -1) location.replace("pos.html");
+  if (u && (u.role === "employee" || u.role === "admin") && customerOnly.indexOf(page) !== -1 && !resellerSlug()) location.replace("pos.html");
 })();
 
 // Ask the server who we are (so a new role shows without logging in again)
