@@ -10,6 +10,7 @@
   <meta name="theme-color" content="#a3134f">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/responsive.css">
+  <link rel="stylesheet" href="css/journey.css">
   <script src="js/fx.js" defer></script>
   <script src="js/api.js"></script>
 </head>
@@ -30,7 +31,7 @@
       try {
         var p = await api(shopPath("/products/" + encodeURIComponent(id)));
         document.title = p.name + " - SCNTS Perfume";
-        box.innerHTML = '<div class="detail">' + productImage(p) + "<div>" +
+        box.innerHTML = '<div class="pdp-bg" style="background-image:url(\'' + esc(p.image_url || "") + '\')"></div><div class="detail pdp">' + productImage(p) + "<div>" +
           '<span class="brand">' + esc(p.brand) + " · " + categoryLabel(p.category) + "</span>" +
           "<h1>" + esc(p.name) + "</h1>" +
           '<p class="price" style="font-size:1.6rem">' + money(p.price) + "</p>" +
@@ -39,6 +40,13 @@
           '<div class="qty"><button id="minus">−</button><input id="qty" type="number" min="1" max="20" value="1"><button id="plus">+</button></div> ' +
           '<button class="btn" id="add"' + (p.stock <= 0 ? " disabled" : "") + ">Add to cart</button>" +
           "</div></div>";
+        var pi = box.querySelector(".pimg");
+        if (pi && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          document.addEventListener("pointermove", function (e) {
+            var x = (e.clientX / innerWidth - .5) * 2, y = (e.clientY / innerHeight - .5) * 2;
+            pi.style.transform = "perspective(1100px) rotateY(" + x * 9 + "deg) rotateX(" + (-y * 7) + "deg)";
+          });
+        }
         var qty = document.getElementById("qty");
         document.getElementById("minus").onclick = function () { qty.value = Math.max(1, Number(qty.value) - 1); };
         document.getElementById("plus").onclick = function () { qty.value = Math.min(20, Number(qty.value) + 1); };
