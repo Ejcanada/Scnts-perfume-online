@@ -9,7 +9,7 @@
   ],
   "routes": [
     {
-      "src": "/(products|auth|orders|favorites|pos|inventory|staff|reports|health|docs|redoc|openapi\\.json)(/.*)?",
+      "src": "/(products|auth|orders|favorites|pos|inventory|staff|reports|promos|health|docs|redoc|openapi\\.json)(/.*)?",
       "dest": "/api/index.py"
     },
     { "handle": "filesystem" },
