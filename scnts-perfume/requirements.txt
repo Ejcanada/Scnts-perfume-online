@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-supabase
-bcrypt
-PyJWT
-python-dotenv
-openpyxl
