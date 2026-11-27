@@ -32,7 +32,7 @@
     stack.innerHTML = picks.map(function (x, i) { return '<img class="' + (i ? "" : "on") + '" src="' + esc(x.p.image_url || "") + '" alt="">'; }).join("");
     steps.innerHTML = picks.map(function (x, i) {
       var c = COPY[x.c];
-      return '<article class="story-step" data-i="' + i + '"><p class="ss-k">' + c.k + '</p><h2>' + c.h + '</h2><p class="ss-p">' + c.p + '</p>' +
+      return '<article class="story-step" data-i="' + i + '"><img class="ss-img" src="' + esc(x.p.image_url || "") + '" alt="' + esc(x.p.name) + '" loading="lazy"><p class="ss-k">' + c.k + '</p><h2>' + c.h + '</h2><p class="ss-p">' + c.p + '</p>' +
         '<p class="ss-pick">' + esc(x.p.name) + ' <b>' + money(x.p.price) + '</b></p>' +
         '<div class="ss-act"><button class="btn" type="button" data-open="' + x.p.id + '">Step inside</button><a class="ss-link" href="' + c.link + '">' + c.cta + '</a></div></article>';
     }).join("");
