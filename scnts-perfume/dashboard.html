@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard - SCNTS Perfume</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Great+Vibes&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <meta name="theme-color" content="#a3134f">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/staff.css">
+  <link rel="stylesheet" href="css/responsive.css">
+  <link rel="stylesheet" href="css/pay.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <script src="js/fx.js" defer></script>
+  <script src="js/api.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+  <main class="container">
+    <div id="denied" style="display:none"><div class="box"><p>Staff only. Your account does not have access to this page.</p></div></div>
+    <div id="staff-content" style="display:none">
+      <div class="dash-head">
+        <div><h1 class="page-title">Dashboard</h1><p class="sub">Monitor stock levels, sales and shop health.</p></div>
+        <div class="dash-actions"><a class="btn btn-small" href="pos.html">Open POS</a><a class="btn btn-outline btn-small" href="inventory.html">Inventory</a></div>
+      </div>
+      <div id="msg" class="msg"></div>
+      <div id="dash"><div class="dash-loading"><span></span><span></span><span></span></div></div>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+
+  <script src="js/main.js"></script>
+  <script src="js/pay.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
