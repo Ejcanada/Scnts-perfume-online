@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/staff.css">
   <link rel="stylesheet" href="css/responsive.css">
+  <link rel="stylesheet" href="css/pay.css">
+  <link rel="stylesheet" href="css/shell.css">
   <script src="js/fx.js" defer></script>
   <script src="js/api.js"></script>
 </head>
@@ -42,10 +44,13 @@
           <div class="big-total" id="sale-total">₱0.00</div>
           <div class="pay-options" id="pay-options">
             <button type="button" class="active" data-pay="cash">Cash</button>
-            <button type="button" data-pay="gcash">GCash</button>
+            <button type="button" data-pay="gcash" class="ew gcash">GCash</button>
+            <button type="button" data-pay="maribank" class="ew maribank">MariBank</button>
+            <button type="button" data-pay="gotyme" class="ew gotyme">GoTyme</button>
             <button type="button" data-pay="card">Card</button>
             <button type="button" data-pay="other">Other</button>
           </div>
+          <div id="pay-show"></div>
           <input id="sale-note" maxlength="200" placeholder="Note (optional)">
           <br><br>
           <button class="btn big-btn" id="record-btn" disabled>Record sale</button>
@@ -69,6 +74,7 @@
   <footer id="site-footer"></footer>
 
   <script src="js/main.js"></script>
+  <script src="js/pay.js"></script>
   <script src="js/pos.js"></script>
 </body>
 </html>
