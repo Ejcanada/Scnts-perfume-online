@@ -195,6 +195,8 @@ def reseller_by_slug(slug):
     res = run(db().table("users").select("id,name,is_active,shop_slug,role:roles(role)").eq("shop_slug", slug).limit(1))
     if not res.data or not res.data[0]["is_active"] or role_name(res.data[0]) not in STAFF_ROLES:
         return None
+    if role_name(res.data[0]) == "admin":
+        return None          # the admin's shop is the main shop, never a reseller shop
     return res.data[0]
 
 
@@ -1085,6 +1087,8 @@ def shop_info(slug: str):
 
 @app.get("/reseller/shop")
 def my_shop(staff=Depends(staff_only)):
+    if staff["role"] == "admin":
+        return {"slug": None, "main": True, "name": staff["name"], "products": []}
     slug = ensure_slug(staff["id"], staff["name"])
     mine = reseller_price_map(staff["id"])
     prods = run(db().table("products").select(PUBLIC_COLS + ",company_price").order("id")).data
@@ -1102,6 +1106,8 @@ def my_shop(staff=Depends(staff_only)):
 
 @app.put("/reseller/shop/prices")
 def save_my_prices(data: ResellerPricesIn, staff=Depends(staff_only)):
+    if staff["role"] == "admin":
+        raise HTTPException(status_code=409, detail="The admin shop is the main shop. Change prices in Products.")
     ids = list({p.product_id for p in data.prices})
     prods = {p["id"]: p for p in run(db().table("products").select("id,name,company_price").in_("id", ids)).data}
     to_save, to_clear = [], []
