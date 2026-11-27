@@ -31,6 +31,15 @@ function showMarkup(r) {
 
 async function load() {
   var d = await api("/reseller/shop");
+  if (d.main) {
+    // admin: the shop link IS the main shop, with the normal prices from Products
+    $("shop-link").value = location.origin + "/shop.html";
+    $("open-link").href = "shop.html?r=";
+    $("link-note").textContent = "This is the main SCNTS shop. Customers see the normal prices from Products. Orders from it are not tagged to anyone.";
+    $("prices-box").style.display = "none";
+    $("main-note").style.display = "block";
+    return;
+  }
   var link = location.origin + "/shop.html?r=" + d.slug;
   $("shop-link").value = link;
   $("open-link").href = "shop.html?r=" + d.slug;
