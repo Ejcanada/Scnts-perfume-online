@@ -455,6 +455,26 @@ class OrderIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     items: List[OrderItemIn] = Field(min_length=1, max_length=30)
     reseller: Optional[str] = Field(default=None, max_length=80)     # the shop link the customer came from
+    payment_method: Optional[str] = Field(default=None, pattern="^(gcash|maribank|gotyme)$")
+
+
+class PaymentRefIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reference: str = Field(min_length=4, max_length=40, pattern=r"^[A-Za-z0-9 \-]+$")
+
+
+class PaymentDecisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: str = Field(pattern="^(confirm|reject)$")
+
+
+class PaymentAccountIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account_name: str = Field(default="", max_length=80)
+    account_number: str = Field(default="", max_length=40)
+    qr_url: Optional[str] = Field(default=None, max_length=300)
+    instructions: Optional[str] = Field(default=None, max_length=300)
+    is_active: bool = False
 
 
 class ResellerPrice(BaseModel):
@@ -483,7 +503,8 @@ class SaleItemIn(BaseModel):
 class SaleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     items: List[SaleItemIn] = Field(min_length=1, max_length=50)
-    payment_method: str = Field(default="cash", pattern="^(cash|gcash|card|other)$")
+    payment_method: str = Field(default="cash", pattern="^(cash|gcash|maribank|gotyme|card|other)$")
+    payment_reference: Optional[str] = Field(default=None, max_length=40, pattern=r"^[A-Za-z0-9 \-]*$")
     note: Optional[str] = Field(default=None, max_length=200)
     promo_ids: List[int] = Field(default_factory=list, max_length=10)
 
@@ -740,7 +761,7 @@ def remove_favorite(product_id: int, user=Depends(current_user)):
 # ---------------------------------------------------------------
 # Orders (the server calculates prices, never the browser)
 # ---------------------------------------------------------------
-ORDER_SELECT = "id,user_id,total,status,created_at,reseller:users!orders_reseller_id_fkey(name),order_items(id,product_id,quantity,price,product:products(name,image_url))"
+ORDER_SELECT = "id,user_id,total,status,payment_method,payment_reference,payment_status,paid_at,created_at,reseller:users!orders_reseller_id_fkey(name),order_items(id,product_id,quantity,price,product:products(name,image_url))"
 
 
 @app.post("/orders", status_code=201)
@@ -766,7 +787,13 @@ def create_order(data: OrderIn, user=Depends(current_user)):
         total = total + float(p["price"]) * qty
     total = round(total, 2)
 
-    order = run(db().table("orders").insert({"user_id": user["id"], "total": total, "status": "pending", "reseller_id": shop["id"] if shop else None}))
+    if data.payment_method:
+        acct = run(db().table("payment_accounts").select("method,is_active").eq("method", data.payment_method).limit(1))
+        if not acct.data or not acct.data[0]["is_active"]:
+            raise HTTPException(status_code=422, detail="That payment method is not available right now. Please pick another one.")
+
+    order = run(db().table("orders").insert({"user_id": user["id"], "total": total, "status": "pending", "reseller_id": shop["id"] if shop else None,
+                                             "payment_method": data.payment_method}))
     order_id = order.data[0]["id"]
 
     rows = []
@@ -823,7 +850,7 @@ def change_order_status(order_id: int, data: StatusIn, admin=Depends(admin_only)
 # POS: staff record walk-in sales (employee and admin)
 # ===============================================================
 SALE_SELECT = (
-    "id,employee_id,total,list_total,promo_discount,payment_method,note,status,void_reason,voided_at,created_at,"
+    "id,employee_id,total,list_total,promo_discount,payment_method,payment_reference,note,status,void_reason,voided_at,created_at,"
     "employee:users!sales_employee_id_fkey(name),"
     "sale_items(id,product_id,quantity,price,list_price,discount,product:products(name)),"
     "sale_promos(promo_name,discount)"
@@ -876,6 +903,7 @@ def record_sale(data: SaleIn, staff=Depends(staff_only)):
         "employee_id": staff["id"], "total": priced["total"],
         "list_total": priced["list_total"], "promo_discount": priced["promo_discount"],
         "payment_method": data.payment_method, "note": data.note,
+        "payment_reference": (data.payment_reference or "").strip() or None,
     }))
     sale_id = sale.data[0]["id"]
 
@@ -995,11 +1023,11 @@ def sales_summary(date: Optional[str] = None, employee_id: Optional[int] = None,
     day, sales = sales_of_day(date, staff, employee_id)
     done = [s for s in sales if s["status"] == "completed"]
 
-    by_payment = {"cash": 0, "gcash": 0, "card": 0, "other": 0}
+    by_payment = {"cash": 0, "gcash": 0, "maribank": 0, "gotyme": 0, "card": 0, "other": 0}
     by_employee = {}
     items_sold = 0
     for s in done:
-        by_payment[s["payment_method"]] = round(by_payment[s["payment_method"]] + float(s["total"]), 2)
+        by_payment[s["payment_method"]] = round(by_payment.get(s["payment_method"], 0) + float(s["total"]), 2)
         qty = sum(i["quantity"] for i in s["sale_items"])
         items_sold += qty
         who = by_employee.setdefault(s["employee_id"], {
@@ -1240,6 +1268,175 @@ def stock_history(product_id: Optional[int] = None, limit: int = 100, admin=Depe
 
 
 # ===============================================================
+# E-wallet payments: GCash, MariBank, GoTyme
+# The customer sends the exact amount to the shop account, then types the
+# reference number from the receipt. The admin checks it and confirms.
+# ===============================================================
+PAYMENT_PUBLIC = "method,label,account_name,account_number,qr_url,instructions"
+
+
+@app.get("/payments/methods")
+def payment_methods():
+    res = run(db().table("payment_accounts").select(PAYMENT_PUBLIC).eq("is_active", True).order("method"))
+    return {"methods": res.data}
+
+
+@app.get("/payments/accounts")
+def payment_accounts(admin=Depends(admin_only)):
+    res = run(db().table("payment_accounts").select("*").order("method"))
+    return {"accounts": res.data}
+
+
+@app.put("/payments/accounts/{method}")
+def save_payment_account(method: str, data: PaymentAccountIn, admin=Depends(admin_only)):
+    if method not in ("gcash", "maribank", "gotyme"):
+        raise HTTPException(status_code=404, detail="Unknown payment method.")
+    name = data.account_name.strip()
+    number = re.sub(r"\s+", " ", data.account_number.strip())
+    if data.is_active and (not name or not number):
+        raise HTTPException(status_code=422, detail="Add the account name and number before you turn this on.")
+    if number and not re.match(r"^[0-9 \-]{6,40}$", number):
+        raise HTTPException(status_code=422, detail="The account number can only have digits, spaces and dashes.")
+    qr = (data.qr_url or "").strip() or None
+    if qr and not re.match(r"^(https://|images/)[^\s<>\"']+$", qr):
+        raise HTTPException(status_code=422, detail="The QR image must be a link starting with https:// or a file in the images folder.")
+    res = run(db().table("payment_accounts").update({
+        "account_name": name, "account_number": number, "qr_url": qr,
+        "instructions": (data.instructions or "").strip() or None,
+        "is_active": data.is_active, "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("method", method))
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Unknown payment method.")
+    return res.data[0]
+
+
+@app.post("/orders/{order_id}/payment")
+def send_payment_reference(order_id: int, data: PaymentRefIn, user=Depends(current_user)):
+    cur = run(db().table("orders").select("id,user_id,status,payment_method,payment_status").eq("id", order_id).limit(1))
+    if not cur.data or cur.data[0]["user_id"] != user["id"]:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    o = cur.data[0]
+    if not o["payment_method"]:
+        raise HTTPException(status_code=409, detail="This order has no online payment.")
+    if o["status"] != "pending" or o["payment_status"] == "confirmed":
+        raise HTTPException(status_code=409, detail="This order is already paid or closed.")
+    res = run(db().table("orders").update({"payment_reference": data.reference.strip(), "payment_status": "submitted"})
+              .eq("id", order_id).eq("status", "pending"))
+    if not res.data:
+        raise HTTPException(status_code=409, detail="The order changed. Please refresh and try again.")
+    return {"message": "Reference received. We will confirm your payment soon.", "order_id": order_id}
+
+
+@app.patch("/orders/{order_id}/payment")
+def decide_payment(order_id: int, data: PaymentDecisionIn, admin=Depends(admin_only)):
+    cur = run(db().table("orders").select("id,status,payment_status").eq("id", order_id).limit(1))
+    if not cur.data:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    o = cur.data[0]
+    if o["status"] == "cancelled":
+        raise HTTPException(status_code=409, detail="A cancelled order cannot be changed.")
+    if o["payment_status"] != "submitted":
+        raise HTTPException(status_code=409, detail="There is no payment waiting to be checked on this order.")
+    if data.action == "confirm":
+        change = {"payment_status": "confirmed", "paid_at": datetime.now(timezone.utc).isoformat()}
+        if o["status"] == "pending":
+            change["status"] = "paid"
+    else:
+        change = {"payment_status": "rejected"}
+    res = run(db().table("orders").update(change).eq("id", order_id).eq("payment_status", "submitted"))
+    if not res.data:
+        raise HTTPException(status_code=409, detail="The order changed. Please refresh and try again.")
+    return res.data[0]
+
+
+# ===============================================================
+# Dashboard: inventory, sales and alerts in one call
+# ===============================================================
+LOW_STOCK = 5
+
+
+@app.get("/dashboard")
+def dashboard(staff=Depends(staff_only)):
+    is_admin = staff["role"] == "admin"
+    now = datetime.now(PH_TZ)
+    today = now.date()
+    first_day = today - timedelta(days=29)
+    start = datetime(first_day.year, first_day.month, first_day.day, tzinfo=PH_TZ).isoformat()
+
+    products = fetch_all(lambda: db().table("products").select("id,name,brand,category,stock,price,company_price,image_url").order("id"))
+    units = sum(p["stock"] for p in products)
+    retail = round(sum(float(p["price"]) * p["stock"] for p in products), 2)
+    cost = round(sum(float(p["company_price"] or 0) * p["stock"] for p in products), 2)
+    out = [p for p in products if p["stock"] <= 0]
+    low = [p for p in products if 0 < p["stock"] <= LOW_STOCK]
+    alert = sorted(out + low, key=lambda p: (p["stock"], p["name"]))
+    cats = {}
+    for p in products:
+        c = cats.setdefault(p["category"], {"category": p["category"], "products": 0, "units": 0})
+        c["products"] += 1
+        c["units"] += p["stock"]
+
+    q = db().table("sales").select("id,employee_id,total,status,payment_method,created_at,sale_items(quantity,product_id,product:products(name))").gte("created_at", start)
+    if not is_admin:
+        q = q.eq("employee_id", staff["id"])
+    sales = fetch_all(lambda: q.order("created_at", desc=True))
+
+    daily = {}
+    for i in range(14):
+        d = (today - timedelta(days=13 - i)).isoformat()
+        daily[d] = {"date": d, "total": 0, "count": 0}
+    periods = {"today": [0, 0], "week": [0, 0], "month": [0, 0]}
+    voided_today = [0, 0]
+    top, pay = {}, {}
+    for s in sales:
+        d = parse_ts(s["created_at"]).date()
+        age = (today - d).days
+        total = float(s["total"])
+        if s["status"] != "completed":
+            if age == 0:
+                voided_today[0] += 1
+                voided_today[1] = round(voided_today[1] + total, 2)
+            continue
+        for key, limit in (("today", 0), ("week", 6), ("month", 29)):
+            if age <= limit:
+                periods[key][0] = round(periods[key][0] + total, 2)
+                periods[key][1] += 1
+        if d.isoformat() in daily:
+            daily[d.isoformat()]["total"] = round(daily[d.isoformat()]["total"] + total, 2)
+            daily[d.isoformat()]["count"] += 1
+        pay[s["payment_method"]] = round(pay.get(s["payment_method"], 0) + total, 2)
+        for it in s["sale_items"]:
+            name = (it.get("product") or {}).get("name", "Perfume " + str(it["product_id"]))
+            top[name] = top.get(name, 0) + it["quantity"]
+
+    out_data = {
+        "low_threshold": LOW_STOCK,
+        "inventory": {"products": len(products), "units": units, "retail_value": retail, "cost_value": cost,
+                      "low": len(low), "out": len(out), "healthy": len(products) - len(low) - len(out)},
+        "alerts": alert[:15],
+        "categories": list(cats.values()),
+        "sales": {"today": {"total": periods["today"][0], "count": periods["today"][1]},
+                  "week": {"total": periods["week"][0], "count": periods["week"][1]},
+                  "month": {"total": periods["month"][0], "count": periods["month"][1]},
+                  "voided_today": {"count": voided_today[0], "total": voided_today[1]}},
+        "daily": list(daily.values()),
+        "top": [{"name": n, "qty": q} for n, q in sorted(top.items(), key=lambda x: -x[1])[:5]],
+        "payments": [{"method": k, "total": v} for k, v in sorted(pay.items(), key=lambda x: -x[1])],
+        "scope": "all" if is_admin else "mine",
+    }
+    if is_admin:
+        orders = fetch_all(lambda: db().table("orders").select("id,total,status,payment_method,payment_reference,payment_status,created_at,user:users!orders_user_id_fkey(name)").order("created_at", desc=True), limit=5000)
+        counts = {}
+        for o in orders:
+            counts[o["status"]] = counts.get(o["status"], 0) + 1
+        out_data["orders"] = {"counts": counts, "total": len(orders)}
+        out_data["to_verify"] = [o for o in orders if o["payment_status"] == "submitted"][:10]
+        mv = run(db().table("stock_movements").select("id,qty_change,stock_after,reason,created_at,product:products(name)").order("created_at", desc=True).limit(8))
+        out_data["movements"] = mv.data
+    return out_data
+
+
+# ===============================================================
 # Staff accounts (admin creates employees)
 # ===============================================================
 @app.get("/staff")
@@ -1451,7 +1648,7 @@ def build_report(d1, d2, raw, generated_by):
 
     # ----- payment methods (walk-in only) -----
     payments = []
-    for key, label in (("cash", "Cash"), ("gcash", "GCash"), ("card", "Card"), ("other", "Other")):
+    for key, label in (("cash", "Cash"), ("gcash", "GCash"), ("maribank", "MariBank"), ("gotyme", "GoTyme"), ("card", "Card"), ("other", "Other")):
         mine = [x for x in done if x["payment_method"] == key]
         payments.append({"method": label, "count": len(mine), "total": round(sum(float(x["total"]) for x in mine), 2)})
 
