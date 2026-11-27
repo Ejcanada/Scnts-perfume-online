@@ -26,9 +26,10 @@
       <div class="box">
         <h2>My shop link</h2>
         <div class="link-box"><input id="shop-link" readonly><button class="btn" id="copy-btn">Copy link</button><a class="btn btn-outline" id="open-link" target="_blank" rel="noopener">Open my shop</a></div>
-        <p class="sub" style="margin:10px 0 0">Orders from your link come to SCNTS tagged with your name, and they count in your Earnings.</p>
+        <p class="sub" id="link-note" style="margin:10px 0 0">Orders from your link come to SCNTS tagged with your name, and they count in your Earnings.</p>
       </div>
-      <div class="box" style="margin-top:24px">
+      <div class="box" id="main-note" style="display:none;margin-top:24px"><h2>Prices</h2><p class="sub">The main shop uses the prices you set in <a href="admin.html">Products</a>.</p></div>
+      <div class="box" id="prices-box" style="margin-top:24px">
         <h2>My prices</h2>
         <p class="sub">Type your selling price for each perfume. Empty = the normal shop price. Your markup is your price minus the company price.</p>
         <div class="toolbar"><input id="search" type="search" placeholder="Search perfume..."></div>
